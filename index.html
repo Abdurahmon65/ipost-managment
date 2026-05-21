@@ -1031,6 +1031,22 @@
   .status-pulse.offline  { background: var(--text-muted); }
   .status-pulse.not-working { background: var(--danger); }
 
+  /* PASSWORD FIELD with eye toggle */
+  .pwd-wrap { position: relative; }
+  .pwd-wrap input { padding-right: 42px !important; }
+  .pwd-toggle {
+    position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+    width: 30px; height: 30px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-muted); cursor: pointer; background: transparent;
+    border: none; transition: all 0.15s;
+  }
+  .pwd-toggle:hover { background: var(--panel-3); color: var(--accent); }
+  .pwd-toggle svg { width: 17px; height: 17px; }
+  .pwd-toggle .eye-closed { display: none; }
+  .pwd-toggle.visible .eye-open   { display: none; }
+  .pwd-toggle.visible .eye-closed { display: inline; color: var(--accent); }
+
   /* LANG SWITCHER */
   .lang-switch {
     display: inline-flex;
@@ -1143,7 +1159,13 @@
     </div>
     <div class="form-row">
       <label data-i18n="gate_pass">Пароль</label>
-      <input type="password" id="gate-pass" value="2026" autocomplete="current-password">
+      <div class="pwd-wrap">
+        <input type="password" id="gate-pass" value="2026" autocomplete="current-password">
+        <button type="button" class="pwd-toggle" id="gate-pass-eye" onclick="togglePwd('gate-pass','gate-pass-eye')" title="Показать пароль">
+          <svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          <svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/></svg>
+        </button>
+      </div>
     </div>
     <button class="btn btn-primary" style="width:100%; margin-top:6px;" onclick="doLogin()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
@@ -1859,6 +1881,16 @@ function toast(msg, kind = '') {
   setTimeout(() => { t.style.opacity = '0'; t.style.transform = 'translateX(20px)'; }, 2800);
   setTimeout(() => t.remove(), 3100);
 }
+function togglePwd(inputId, btnId) {
+  const inp = document.getElementById(inputId);
+  const btn = document.getElementById(btnId);
+  if (!inp || !btn) return;
+  const isPwd = inp.type === 'password';
+  inp.type = isPwd ? 'text' : 'password';
+  btn.classList.toggle('visible', isPwd);
+  btn.setAttribute('title', isPwd ? 'Скрыть пароль' : 'Показать пароль');
+}
+
 function toggleTheme() {
   const cur = document.documentElement.getAttribute('data-theme');
   const next = cur === 'dark' ? 'light' : 'dark';
@@ -5323,9 +5355,27 @@ function renderSettings() {
   const sec = el('div', { class: 'card' });
   sec.appendChild(el('div', { class: 'card-head', html: `<div><div class="h">Безопасность и доступы</div><div class="sub">Аутентификация и привилегии</div></div>`}));
   sec.innerHTML += `
-    <div class="form-row"><label>Текущий пароль</label><input type="password" value="********"></div>
-    <div class="form-row"><label>Новый пароль</label><input type="password" placeholder="Не менее 8 символов"></div>
-    <div class="form-row"><label>Подтверждение</label><input type="password" placeholder="Повторите пароль"></div>
+    <div class="form-row"><label>Текущий пароль</label>
+      <div class="pwd-wrap"><input type="password" id="s-pwd-cur" value="********">
+        <button type="button" class="pwd-toggle" id="s-pwd-cur-eye" onclick="togglePwd('s-pwd-cur','s-pwd-cur-eye')">
+          <svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          <svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/></svg>
+        </button>
+      </div></div>
+    <div class="form-row"><label>Новый пароль</label>
+      <div class="pwd-wrap"><input type="password" id="s-pwd-new" placeholder="Не менее 8 символов">
+        <button type="button" class="pwd-toggle" id="s-pwd-new-eye" onclick="togglePwd('s-pwd-new','s-pwd-new-eye')">
+          <svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          <svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/></svg>
+        </button>
+      </div></div>
+    <div class="form-row"><label>Подтверждение</label>
+      <div class="pwd-wrap"><input type="password" id="s-pwd-cf" placeholder="Повторите пароль">
+        <button type="button" class="pwd-toggle" id="s-pwd-cf-eye" onclick="togglePwd('s-pwd-cf','s-pwd-cf-eye')">
+          <svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          <svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/></svg>
+        </button>
+      </div></div>
     <div style="display:flex; justify-content:space-between; align-items:center; padding:12px; border-radius:10px; background:var(--panel-2); margin-top:8px;">
       <div>
         <div style="font-weight:600; font-size:12.5px;">Двухфакторная аутентификация</div>
