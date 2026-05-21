@@ -1934,7 +1934,180 @@ async function doLogout() {
   $('#gate').style.display = 'flex';
 }
 function exportReport() {
-  toast('Отчёт за ' + STATE.range + ' сформирован. Скачивание начнётся через 2 сек.', 'success');
+  const live = STATE.live || {};
+  const lk = live.kpis || {};
+  const couriers = getAllCouriers ? getAllCouriers() : [];
+  const orders   = getAllOrders ? getAllOrders() : [];
+  const branches = live.branches || [];
+  const regions  = live.regions || [];
+  const routes   = (live.dispatch && live.dispatch.routes) || [];
+  const vehicles = (live.dispatch && live.dispatch.vehicles) || [];
+  const plans    = live.plans || [];
+  const costs    = (typeof calculateCosts === 'function') ? calculateCosts('all') : null;
+  const today    = new Date().toLocaleString('ru-RU');
+  const user     = STATE.user || {};
+  const onRoute  = couriers.filter(d => d.bucket === 'on_route').length;
+  const online   = couriers.filter(d => d.bucket === 'online').length;
+  const offline  = couriers.filter(d => d.bucket === 'offline').length;
+  const notWork  = couriers.filter(d => d.bucket === 'not_working').length;
+  const completed = orders.filter(o => o.status === 'completed').length;
+  const totalKg   = orders.reduce((s,o) => s + (Number(o.weightKg)||0), 0);
+  const totalSum  = orders.reduce((s,o) => s + (Number(o.sumUZS)||0), 0);
+
+  // Build a full standalone HTML document
+  const html = `<!DOCTYPE html>
+<html lang="ru"><head><meta charset="UTF-8"><title>iPost GO — Отчёт ${today}</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, 'Segoe UI', Arial, sans-serif; margin: 0; padding: 32px; color: #111; background: #fff; }
+  h1 { font-size: 26px; margin: 0 0 4px; color: #0033CC; }
+  h2 { font-size: 16px; margin: 24px 0 10px; color: #0033CC; border-bottom: 2px solid #0033CC; padding-bottom: 4px; }
+  h3 { font-size: 13px; margin: 12px 0 6px; color: #333; }
+  .meta { color: #666; font-size: 11px; margin-bottom: 18px; }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; margin: 8px 0 14px; }
+  th, td { padding: 6px 8px; border: 1px solid #ddd; text-align: left; }
+  th { background: #f4f7fc; font-weight: 700; color: #0033CC; }
+  .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 10px 0; }
+  .kpi { padding: 10px 12px; border: 1px solid #e0e6f0; border-radius: 8px; background: #f9fbff; }
+  .kpi .l { font-size: 9px; text-transform: uppercase; color: #666; letter-spacing: 0.5px; }
+  .kpi .v { font-size: 18px; font-weight: 700; color: #0033CC; margin-top: 4px; font-family: 'Courier New', monospace; }
+  .header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #0033CC; padding-bottom: 12px; margin-bottom: 18px; }
+  .header-right { text-align: right; font-size: 11px; color: #666; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; }
+  .badge.green { background: #dcfce7; color: #166534; }
+  .badge.red   { background: #fee2e2; color: #991b1b; }
+  .badge.gray  { background: #f3f4f6; color: #4b5563; }
+  .footer { margin-top: 30px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 10px; color: #888; text-align: center; }
+  @media print { body { padding: 16px; } .no-print { display: none; } @page { size: A4; margin: 12mm; } }
+  .toolbar { position: fixed; top: 10px; right: 10px; z-index: 100; display: flex; gap: 6px; }
+  .toolbar button { padding: 8px 14px; border: none; border-radius: 6px; background: #0033CC; color: #fff; font-weight: 600; cursor: pointer; }
+  .toolbar button:hover { background: #001A66; }
+</style></head>
+<body>
+  <div class="toolbar no-print">
+    <button onclick="window.print()">🖨️ Печать / Сохранить PDF</button>
+    <button onclick="window.close()" style="background:#666;">Закрыть</button>
+  </div>
+
+  <div class="header">
+    <div>
+      <h1>iPost GO — Управленческий отчёт</h1>
+      <div class="meta">Сгенерирован: <b>${today}</b> · Пользователь: <b>${user.fullName || user.login || '—'}</b> · Роль: <b>${user.role || '—'}</b></div>
+    </div>
+    <div class="header-right">
+      iPost GO Director Suite<br>
+      <b>https://ipost-managment.vercel.app</b>
+    </div>
+  </div>
+
+  <h2>📊 Сводные показатели</h2>
+  <div class="kpi-grid">
+    <div class="kpi"><div class="l">Филиалы ПВЗ</div><div class="v">${fmt(lk.branches?.total || 0)}</div></div>
+    <div class="kpi"><div class="l">Активные</div><div class="v">${fmt(lk.branches?.active || 0)}</div></div>
+    <div class="kpi"><div class="l">Регионов</div><div class="v">${regions.length}</div></div>
+    <div class="kpi"><div class="l">Курьеры</div><div class="v">${fmt(lk.drivers?.total || 0)}</div></div>
+    <div class="kpi"><div class="l">Маршруты</div><div class="v">${fmt(lk.routes?.total || 0)}</div></div>
+    <div class="kpi"><div class="l">Заказы</div><div class="v">${fmt(lk.orders?.total || 0)}</div></div>
+    <div class="kpi"><div class="l">Доставлено</div><div class="v">${fmt(completed)}</div></div>
+    <div class="kpi"><div class="l">Общий вес</div><div class="v">${fmt(totalKg)} кг</div></div>
+  </div>
+
+  <h2>🚴 Курьерская</h2>
+  <table>
+    <thead><tr><th>Показатель</th><th>Значение</th></tr></thead>
+    <tbody>
+      <tr><td>Всего курьеров</td><td><b>${couriers.length}</b></td></tr>
+      <tr><td>На маршруте</td><td><b>${onRoute}</b> (${couriers.length ? Math.round(onRoute/couriers.length*100) : 0}%)</td></tr>
+      <tr><td>Онлайн (готовы)</td><td><b>${online}</b></td></tr>
+      <tr><td>Оффлайн</td><td><b>${offline}</b></td></tr>
+      <tr><td>Не работает</td><td><b>${notWork}</b></td></tr>
+      <tr><td>Оборот за период</td><td><b>${fmt(totalSum)} UZS</b> (${fmtMoney(totalSum/1e6)} млн)</td></tr>
+      ${costs ? `<tr><td>Себестоимость курьерской</td><td><b>${fmtMoney((costs.courier.total + costs.orders.processing)/1e6)} млн UZS</b></td></tr>` : ''}
+    </tbody>
+  </table>
+
+  <h2>🏢 Сеть ПВЗ</h2>
+  <table>
+    <thead><tr><th>Регион</th><th>Всего</th><th>Активные</th><th>Закрыто</th></tr></thead>
+    <tbody>
+      ${regions.map(r => `<tr><td><b>${r.name}</b></td><td>${r.branches}</td><td><span class="badge green">${r.active}</span></td><td>${r.closed ? `<span class="badge red">${r.closed}</span>` : '0'}</td></tr>`).join('')}
+    </tbody>
+  </table>
+
+  ${costs ? `
+  <h2>💰 Себестоимость</h2>
+  <div class="kpi-grid">
+    <div class="kpi"><div class="l">ФОТ курьеров</div><div class="v">${fmtMoney(costs.courier.salaries/1e6)}M</div></div>
+    <div class="kpi"><div class="l">Топливо</div><div class="v">${fmtMoney(costs.courier.fuel/1e6)}M</div></div>
+    <div class="kpi"><div class="l">Аренда ПВЗ</div><div class="v">${fmtMoney(costs.pvz.rent/1e6)}M</div></div>
+    <div class="kpi"><div class="l">ФОТ менеджеров</div><div class="v">${fmtMoney(costs.pvz.salaries/1e6)}M</div></div>
+    <div class="kpi"><div class="l">ТО автопарка</div><div class="v">${fmtMoney(costs.vehicle.maintenance/1e6)}M</div></div>
+    <div class="kpi"><div class="l">Коммунальные</div><div class="v">${fmtMoney(costs.pvz.utilities/1e6)}M</div></div>
+    <div class="kpi" style="background:#fef3c7;border-color:#fcd34d;"><div class="l">ИТОГО / месяц</div><div class="v">${fmtMoney(costs.grandTotal/1e6)}M</div></div>
+    <div class="kpi" style="background:${costs.margin>=0?'#dcfce7':'#fee2e2'};border-color:${costs.margin>=0?'#86efac':'#fecaca'};"><div class="l">Маржа</div><div class="v">${fmtMoney(costs.margin/1e6)}M</div></div>
+  </div>` : ''}
+
+  ${plans.length ? `
+  <h2>📅 Утверждённые планы (${plans.length})</h2>
+  <table>
+    <thead><tr><th>Филиал</th><th>Месяц</th><th>Заказы</th><th>Выручка</th><th>Утвердил</th><th>Статус</th></tr></thead>
+    <tbody>
+      ${plans.slice(0, 30).map(pl => {
+        const br = branches.find(b => b.id === pl.branchId);
+        return `<tr>
+          <td><b>${br ? br.name : pl.branchId}</b></td>
+          <td>${pl.month}</td>
+          <td>${fmt(pl.targets.orders)}</td>
+          <td>${fmtMoney(pl.targets.revenue/1e6)}M</td>
+          <td>${pl.approvedBy}</td>
+          <td>${pl.locked ? '<span class="badge red">🔒 LOCKED</span>' : '<span class="badge gray">unlocked</span>'}</td>
+        </tr>`;
+      }).join('')}
+    </tbody>
+  </table>` : ''}
+
+  ${routes.length ? `
+  <h2>🚚 Маршруты iPost GO</h2>
+  <table>
+    <thead><tr><th>ID</th><th>Маршрут</th><th>Дата</th><th>Точки</th><th>Прогресс</th><th>Статус</th></tr></thead>
+    <tbody>
+      ${routes.slice(0, 20).map(r => `<tr>
+        <td>${r.id}</td>
+        <td><b>${r.name || '—'}</b></td>
+        <td>${r.date || '—'}</td>
+        <td>${r.metrics?.stops ?? (r.stopIds||[]).length}</td>
+        <td>${r.progress || 0}%</td>
+        <td>${r.status || '—'}</td>
+      </tr>`).join('')}
+    </tbody>
+  </table>` : ''}
+
+  <div class="footer">
+    Отчёт сгенерирован автоматически из реальных данных: iPost PVZ (Upstash Redis) + iPost GO Dispatch (logistic-system-tau.vercel.app)
+    <br>© ${new Date().getFullYear()} iPost GO Director Suite
+  </div>
+
+  <script>
+    // Auto-open print dialog after a short delay so the user sees the content first.
+    window.addEventListener('load', () => setTimeout(() => window.print(), 600));
+  <\/script>
+</body></html>`;
+
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const w = window.open(url, '_blank', 'width=900,height=1000');
+  if (!w) {
+    // Popup blocked — fall back to download
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ipost-go-report-${new Date().toISOString().slice(0,10)}.html`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('Отчёт скачан (откройте в браузере → Ctrl+P для PDF). Разрешите всплывающие окна для прямой печати.', 'warning');
+    return;
+  }
+  toast('Отчёт открыт в новой вкладке. Откроется диалог печати — выберите «Сохранить как PDF».', 'success');
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
 /* ==================== RENDER NAV ==================== */
@@ -3765,97 +3938,271 @@ function renderBranches() {
 }
 
 /* ==================== PAGE: FINANCE ==================== */
+// Finance filter & comparison state
+function _dm(days) { const d = new Date(); d.setDate(d.getDate() - days); return d.toISOString().slice(0,10); }
+const FIN_FILTER = {
+  scope:    'all',       // 'all' | 'courier' | 'pvz' | 'logistics'
+  region:   'all',       // region key or 'all'
+  fromA:    _dm(30), toA: new Date().toISOString().slice(0,10),  // base period
+  fromB:    _dm(60), toB: _dm(31),                                // comparison period
+  compareOn: true,
+  // Manual overrides (UZS)
+  manualRevenue: '', manualCosts: '',
+};
+
+function calcFinancePeriod(scope, region, fromDate, toDate) {
+  // Compute revenue + cost from live data (filtered by scope/region if applicable).
+  // For now we use full dataset and scale-by-period heuristic since dispatch has no orderDate filter in browser.
+  const live = STATE.live || {};
+  const orders   = (live.dispatch && live.dispatch.orders)   || [];
+  const branches = live.branches || [];
+  const days = Math.max(1, Math.round((new Date(toDate) - new Date(fromDate)) / 86400000) + 1);
+  // Per-day estimates
+  const revenuePerDay = orders.reduce((s,o) => s + (Number(o.sumUZS)||0), 0);
+  // Get cost components by scope
+  const costs = calculateCosts('all');
+  const courierC = costs.courier.total;
+  const vehicleC = costs.vehicle.total;
+  const pvzC     = costs.pvz.total;
+  const procC    = costs.orders.processing;
+
+  let revenue = revenuePerDay * days;
+  let cost    = 0;
+  if (scope === 'all') cost = courierC + vehicleC + pvzC + procC;
+  else if (scope === 'courier')   cost = courierC + procC;
+  else if (scope === 'logistics') cost = vehicleC + courierC * 0.4;
+  else if (scope === 'pvz')       cost = pvzC;
+  // Scale to period (cost config is monthly; days/30 multiplier)
+  cost = cost * (days / 30);
+
+  // Region filter — proportional by active branches
+  if (region && region !== 'all') {
+    const inRegion = branches.filter(b => b.regionKey === region && !b.closeDate).length;
+    const totalAct = branches.filter(b => !b.closeDate).length || 1;
+    const ratio = inRegion / totalAct;
+    revenue = Math.round(revenue * ratio);
+    cost    = Math.round(cost    * ratio);
+  }
+  return {
+    days, revenue, cost,
+    margin: revenue - cost,
+    marginPct: revenue ? (revenue - cost) / revenue * 100 : 0,
+    avgDayRevenue: Math.round(revenue / days),
+    avgDayCost:    Math.round(cost    / days),
+  };
+}
+
 function renderFinance() {
   const c = $('#content');
   c.innerHTML = '';
   const p = el('div', { class: 'page active' });
   c.appendChild(p);
 
-  const kg = el('div', { class: 'kpi-grid' });
-  [
-    { l: 'Выручка YTD',        v: '18.42', u: 'млрд UZS', d: '+22.4%', dir: 'up',   icon: 'money',    kind: 'kpi-success' },
-    { l: 'Себестоимость YTD',  v: '11.86', u: 'млрд UZS', d: '+14.2%', dir: 'up',   icon: 'finance',  kind: 'kpi-warning' },
-    { l: 'EBITDA',             v: '4.28',  u: 'млрд UZS', d: '+34.8%', dir: 'up',   icon: 'trend',    kind: 'kpi-success' },
-    { l: 'Маржа EBITDA',       v: '23.2',  u: '%',        d: '+2.1%',  dir: 'up',   icon: 'star',     kind: '' },
-    { l: 'Чистая прибыль',     v: '2.68',  u: 'млрд UZS', d: '+42.1%', dir: 'up',   icon: 'money',    kind: 'kpi-success' },
-    { l: 'Cash flow операц.',  v: '3.14',  u: 'млрд UZS', d: '+28%',   dir: 'up',   icon: 'trend',    kind: 'kpi-purple' },
-    { l: 'Деб. задолж.',       v: '482',   u: 'млн UZS',  d: '−8%',    dir: 'up',   icon: 'clock',    kind: 'kpi-warning' },
-    { l: 'CAPEX YTD',          v: '1.24',  u: 'млрд UZS', d: '+18%',   dir: 'down', icon: 'alert',    kind: 'kpi-danger' },
-  ].forEach(k => kg.appendChild(el('div', { class: 'kpi ' + k.kind, html: `
-    <div class="kpi-head"><div class="kpi-label">${k.l}</div><div class="kpi-icon">${ICONS[k.icon]}</div></div>
-    <div class="kpi-value">${k.v}<span class="unit">${k.u}</span></div>
-    <div class="kpi-foot"><span class="delta ${k.dir}">${k.dir === 'up' ? '▲' : '▼'} ${k.d}</span> г/г</div>
-  `})));
-  p.appendChild(kg);
+  const live = STATE.live || {};
+  const regions = (live.regions || []);
 
-  // P&L chart + cost structure
-  const row = el('div', { class: 'row r-2-1' });
-  const pnl = el('div', { class: 'card' });
-  pnl.appendChild(el('div', { class: 'card-head', html: `
-    <div><div class="h">P&L — Прибыль и убытки</div><div class="sub">Помесячно за последний год</div></div>
-    <div class="card-head-actions">
-      <div class="segmented">
-        <button class="seg active">Год</button>
-        <button class="seg">Квартал</button>
-        <button class="seg">YTD</button>
+  // === FILTER BAR ===
+  const fbar = el('div', { class: 'card', style: 'margin-bottom:16px; padding:16px;' });
+  fbar.innerHTML = `
+    <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:1px; color:var(--text-muted);">Раздел:</span>
+        <select id="fin-scope" style="padding:8px 12px; border-radius:9px; background:var(--panel-2); border:1px solid var(--border); color:var(--text); font-size:12.5px;">
+          <option value="all"       ${FIN_FILTER.scope==='all'?'selected':''}>Всё</option>
+          <option value="courier"   ${FIN_FILTER.scope==='courier'?'selected':''}>Курьерская</option>
+          <option value="pvz"       ${FIN_FILTER.scope==='pvz'?'selected':''}>ПВЗ</option>
+          <option value="logistics" ${FIN_FILTER.scope==='logistics'?'selected':''}>Логистика</option>
+        </select>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:1px; color:var(--text-muted);">Регион:</span>
+        <select id="fin-region" style="padding:8px 12px; border-radius:9px; background:var(--panel-2); border:1px solid var(--border); color:var(--text); font-size:12.5px; min-width:140px;">
+          <option value="all" ${FIN_FILTER.region==='all'?'selected':''}>Все регионы</option>
+          ${regions.map(r => `<option value="${r.key}" ${FIN_FILTER.region===r.key?'selected':''}>${r.name}</option>`).join('')}
+        </select>
+      </div>
+      <div style="flex:1;"></div>
+      <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-dim); cursor:pointer;">
+        <input type="checkbox" id="fin-compare" ${FIN_FILTER.compareOn?'checked':''} style="cursor:pointer;">
+        <span>Сравнить с другим периодом</span>
+      </label>
+      <button class="btn" onclick="resetFinanceFilter()">↺ Сброс</button>
+    </div>
+    <div style="display:flex; align-items:center; gap:14px; margin-top:14px; flex-wrap:wrap; padding-top:14px; border-top:1px solid var(--border);">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span class="pill brand">A</span>
+        <span style="font-size:11px; color:var(--text-muted);">Период A (основной):</span>
+        <input type="date" id="fin-fromA" value="${FIN_FILTER.fromA}" style="padding:7px 10px; border-radius:8px; background:var(--panel-2); border:1px solid var(--border); color:var(--text); font-size:12px;">
+        <span style="color:var(--text-muted);">→</span>
+        <input type="date" id="fin-toA"   value="${FIN_FILTER.toA}" style="padding:7px 10px; border-radius:8px; background:var(--panel-2); border:1px solid var(--border); color:var(--text); font-size:12px;">
+      </div>
+      <div id="fin-period-b" style="display:${FIN_FILTER.compareOn?'flex':'none'}; align-items:center; gap:8px;">
+        <span class="pill purple">B</span>
+        <span style="font-size:11px; color:var(--text-muted);">Период B (для сравнения):</span>
+        <input type="date" id="fin-fromB" value="${FIN_FILTER.fromB}" style="padding:7px 10px; border-radius:8px; background:var(--panel-2); border:1px solid var(--border); color:var(--text); font-size:12px;">
+        <span style="color:var(--text-muted);">→</span>
+        <input type="date" id="fin-toB"   value="${FIN_FILTER.toB}" style="padding:7px 10px; border-radius:8px; background:var(--panel-2); border:1px solid var(--border); color:var(--text); font-size:12px;">
       </div>
     </div>
-  `}));
-  pnl.appendChild(buildAreaChart(seedSeries(12, 140, 22), seedSeries(12, 86, 14)));
-  pnl.appendChild(el('div', { class: 'chart-legend', html: `
-    <span class="legend-item"><span class="legend-dot" style="background:linear-gradient(135deg,#3CCBFF,#0033CC)"></span>Выручка (млн UZS)</span>
-    <span class="legend-item"><span class="legend-dot" style="background:linear-gradient(135deg,#B888FF,#8B5CFF)"></span>Себестоимость</span>
-  `}));
-  row.appendChild(pnl);
-
-  const cs = el('div', { class: 'card' });
-  cs.appendChild(el('div', { class: 'card-head', html: `<div><div class="h">Структура расходов</div><div class="sub">YTD</div></div>`}));
-  cs.appendChild(el('div', { style: 'display:flex; justify-content:center; padding:8px 0;' }, buildDonut([
-    { value: 42, color: '#0033CC' },
-    { value: 22, color: '#3CCBFF' },
-    { value: 14, color: '#B888FF' },
-    { value: 10, color: '#FFB840' },
-    { value: 8,  color: '#FF6BD6' },
-    { value: 4,  color: '#2CE0A8' },
-  ])));
-  cs.appendChild(el('div', { style: 'display:flex; flex-direction:column; gap:6px; margin-top:10px;', html: `
-    <div style="display:flex; justify-content:space-between; font-size:12px;"><span><span style="width:10px;height:10px;background:#0033CC;border-radius:3px;display:inline-block;vertical-align:middle;margin-right:8px;"></span>ФОТ</span><span style="font-family:JetBrains Mono; font-weight:700;">42%</span></div>
-    <div style="display:flex; justify-content:space-between; font-size:12px;"><span><span style="width:10px;height:10px;background:#3CCBFF;border-radius:3px;display:inline-block;vertical-align:middle;margin-right:8px;"></span>Аренда ПВЗ</span><span style="font-family:JetBrains Mono; font-weight:700;">22%</span></div>
-    <div style="display:flex; justify-content:space-between; font-size:12px;"><span><span style="width:10px;height:10px;background:#B888FF;border-radius:3px;display:inline-block;vertical-align:middle;margin-right:8px;"></span>Топливо</span><span style="font-family:JetBrains Mono; font-weight:700;">14%</span></div>
-    <div style="display:flex; justify-content:space-between; font-size:12px;"><span><span style="width:10px;height:10px;background:#FFB840;border-radius:3px;display:inline-block;vertical-align:middle;margin-right:8px;"></span>ТО и ремонт</span><span style="font-family:JetBrains Mono; font-weight:700;">10%</span></div>
-    <div style="display:flex; justify-content:space-between; font-size:12px;"><span><span style="width:10px;height:10px;background:#FF6BD6;border-radius:3px;display:inline-block;vertical-align:middle;margin-right:8px;"></span>IT и СRM</span><span style="font-family:JetBrains Mono; font-weight:700;">8%</span></div>
-    <div style="display:flex; justify-content:space-between; font-size:12px;"><span><span style="width:10px;height:10px;background:#2CE0A8;border-radius:3px;display:inline-block;vertical-align:middle;margin-right:8px;"></span>Прочее</span><span style="font-family:JetBrains Mono; font-weight:700;">4%</span></div>
-  `}));
-  row.appendChild(cs);
-  p.appendChild(row);
-
-  // Margin per region table
-  p.appendChild(el('div', { style: 'height:14px;' }));
-  const tcard = el('div', { class: 'card' });
-  tcard.appendChild(el('div', { class: 'card-head', html: `<div><div class="h">Маржа по регионам</div><div class="sub">EBITDA-маржа и P&L</div></div>`}));
-  const tbl = el('table', { class: 'table' });
-  tbl.innerHTML = `
-    <thead><tr><th>Регион</th><th>Выручка</th><th>Себест.</th><th>Маржа</th><th>EBITDA %</th><th>ROI</th></tr></thead>
-    <tbody>
-      ${REGIONS.map(r => {
-        const cost = +(r.revenue * (0.62 + Math.random()*0.1)).toFixed(1);
-        const margin = +(r.revenue - cost).toFixed(1);
-        const mpct = +(margin / r.revenue * 100).toFixed(1);
-        const roi = +(margin / cost * 100).toFixed(1);
-        return `
-        <tr>
-          <td><b>${r.name}</b></td>
-          <td style="font-family:JetBrains Mono;">${r.revenue}M</td>
-          <td style="font-family:JetBrains Mono; color:var(--text-dim);">${cost}M</td>
-          <td style="font-family:JetBrains Mono; font-weight:700; color:var(--success);">${margin}M</td>
-          <td><span class="pill ${mpct > 30 ? 'success' : mpct > 20 ? 'brand' : 'warning'}">${mpct}%</span></td>
-          <td style="font-family:JetBrains Mono; font-weight:700;">${roi}%</td>
-        </tr>`;
-      }).join('')}
-    </tbody>
+    <div style="display:flex; align-items:center; gap:14px; margin-top:12px; padding-top:12px; border-top:1px dashed var(--border); flex-wrap:wrap;">
+      <span style="font-size:10.5px; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px;">Ручная корректировка:</span>
+      <label style="display:flex; align-items:center; gap:6px; font-size:11.5px;">
+        <span style="color:var(--text-dim);">Выручка (млн UZS, опц.)</span>
+        <input type="number" id="fin-rev" value="${FIN_FILTER.manualRevenue}" placeholder="auto" style="width:120px; padding:7px 10px; border-radius:8px; background:var(--panel-2); border:1px solid var(--border); color:var(--text); font-size:12px;">
+      </label>
+      <label style="display:flex; align-items:center; gap:6px; font-size:11.5px;">
+        <span style="color:var(--text-dim);">Себестоимость (млн UZS, опц.)</span>
+        <input type="number" id="fin-cost" value="${FIN_FILTER.manualCosts}" placeholder="auto" style="width:120px; padding:7px 10px; border-radius:8px; background:var(--panel-2); border:1px solid var(--border); color:var(--text); font-size:12px;">
+      </label>
+      <div style="flex:1;"></div>
+      <button class="btn btn-primary" onclick="exportReport()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+        Экспорт PDF
+      </button>
+    </div>
   `;
+  p.appendChild(fbar);
+
+  // Wire filter events
+  setTimeout(() => {
+    const ids = ['fin-scope','fin-region','fin-fromA','fin-toA','fin-fromB','fin-toB','fin-rev','fin-cost'];
+    ids.forEach(id => {
+      const e = document.getElementById(id);
+      if (!e) return;
+      e.addEventListener('change', () => {
+        FIN_FILTER.scope   = document.getElementById('fin-scope').value;
+        FIN_FILTER.region  = document.getElementById('fin-region').value;
+        FIN_FILTER.fromA   = document.getElementById('fin-fromA').value;
+        FIN_FILTER.toA     = document.getElementById('fin-toA').value;
+        FIN_FILTER.fromB   = document.getElementById('fin-fromB').value;
+        FIN_FILTER.toB     = document.getElementById('fin-toB').value;
+        FIN_FILTER.manualRevenue = document.getElementById('fin-rev').value;
+        FIN_FILTER.manualCosts   = document.getElementById('fin-cost').value;
+        renderFinance();
+      });
+    });
+    const cmp = document.getElementById('fin-compare');
+    if (cmp) cmp.addEventListener('change', () => {
+      FIN_FILTER.compareOn = cmp.checked;
+      renderFinance();
+    });
+  }, 30);
+
+  // === COMPUTE PERIODS ===
+  let A = calcFinancePeriod(FIN_FILTER.scope, FIN_FILTER.region, FIN_FILTER.fromA, FIN_FILTER.toA);
+  let B = FIN_FILTER.compareOn ? calcFinancePeriod(FIN_FILTER.scope, FIN_FILTER.region, FIN_FILTER.fromB, FIN_FILTER.toB) : null;
+
+  // Manual overrides
+  if (FIN_FILTER.manualRevenue && !isNaN(parseFloat(FIN_FILTER.manualRevenue))) {
+    A.revenue = parseFloat(FIN_FILTER.manualRevenue) * 1e6;
+    A.margin = A.revenue - A.cost;
+    A.marginPct = A.revenue ? (A.revenue - A.cost) / A.revenue * 100 : 0;
+  }
+  if (FIN_FILTER.manualCosts && !isNaN(parseFloat(FIN_FILTER.manualCosts))) {
+    A.cost = parseFloat(FIN_FILTER.manualCosts) * 1e6;
+    A.margin = A.revenue - A.cost;
+    A.marginPct = A.revenue ? (A.revenue - A.cost) / A.revenue * 100 : 0;
+  }
+
+  // Helper to compute delta vs B
+  function delta(metric) {
+    if (!B) return null;
+    const a = A[metric] || 0, b = B[metric] || 0;
+    if (b === 0) return null;
+    const pct = ((a - b) / Math.abs(b)) * 100;
+    return { abs: a - b, pct: +pct.toFixed(1), up: pct >= 0 };
+  }
+
+  // === KPIs ===
+  function kpiCell(label, valueA, valueB, unit, deltaInfo, kind, icon) {
+    return `<div class="kpi ${kind || ''}">
+      <div class="kpi-head"><div class="kpi-label">${label}</div><div class="kpi-icon">${ICONS[icon] || ''}</div></div>
+      <div class="kpi-value">${valueA}<span class="unit">${unit || ''}</span></div>
+      ${B ? `
+        <div style="font-size:11px; color:var(--text-muted); margin-top:6px;">B: <b style="font-family:JetBrains Mono; color:var(--text-dim);">${valueB}</b> ${unit || ''}</div>
+        ${deltaInfo ? `<div class="kpi-foot"><span class="delta ${deltaInfo.up ? 'up' : 'down'}">${deltaInfo.up ? '▲' : '▼'} ${Math.abs(deltaInfo.pct)}%</span> vs B</div>` : ''}
+      ` : ''}
+    </div>`;
+  }
+
+  const kg = el('div', { class: 'kpi-grid', html: `
+    ${kpiCell('Выручка',         fmtMoney(A.revenue/1e6),     B ? fmtMoney(B.revenue/1e6) : '',      'млн UZS', delta('revenue'),  'kpi-success', 'money')}
+    ${kpiCell('Себестоимость',   fmtMoney(A.cost/1e6),        B ? fmtMoney(B.cost/1e6) : '',         'млн UZS', delta('cost'),     'kpi-warning', 'finance')}
+    ${kpiCell('Маржа',           fmtMoney(A.margin/1e6),      B ? fmtMoney(B.margin/1e6) : '',       'млн UZS', delta('margin'),   A.margin >= 0 ? 'kpi-success' : 'kpi-danger', 'trend')}
+    ${kpiCell('Маржа %',         A.marginPct.toFixed(1),      B ? B.marginPct.toFixed(1) : '',       '%',       null,              '', 'star')}
+    ${kpiCell('Выручка/день',    fmt(Math.round(A.avgDayRevenue)), B ? fmt(Math.round(B.avgDayRevenue)) : '',  'UZS', delta('avgDayRevenue'),  'kpi-purple', 'package')}
+    ${kpiCell('Затраты/день',    fmt(Math.round(A.avgDayCost)),    B ? fmt(Math.round(B.avgDayCost)) : '',     'UZS', delta('avgDayCost'),     'kpi-warning', 'finance')}
+    ${kpiCell('Дней в периоде',  fmt(A.days),                 B ? fmt(B.days) : '',                  '', null, '', 'clock')}
+    ${kpiCell('ROI',             A.cost ? (A.margin/A.cost*100).toFixed(1) : 0, B && B.cost ? (B.margin/B.cost*100).toFixed(1) : '', '%', null, A.margin >= 0 ? 'kpi-success' : 'kpi-danger', 'trend')}
+  `});
+  p.appendChild(kg);
+
+  // === COMPARISON CHART ===
+  if (B) {
+    p.appendChild(el('div', { class: 'section-title', html: `<span class="dot"></span>Сравнение периодов A и B` }));
+    const cmpCard = el('div', { class: 'card' });
+    cmpCard.appendChild(el('div', { class: 'card-head', html: `<div><div class="h">Сравнительный анализ</div><div class="sub">${FIN_FILTER.fromA} → ${FIN_FILTER.toA} <span style="color:var(--text-muted)">vs</span> ${FIN_FILTER.fromB} → ${FIN_FILTER.toB}</div></div>`}));
+    cmpCard.appendChild(buildBarChart(
+      ['Выручка','Себест.','Маржа','ROI %'],
+      [A.revenue/1e6, A.cost/1e6, A.margin/1e6, A.cost ? A.margin/A.cost*100 : 0],
+      '#0033CC'
+    ));
+    cmpCard.appendChild(el('div', { style: 'display:flex; justify-content:center; gap:24px; padding:12px 0 6px;', html: `
+      <span style="display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--text-dim);"><span style="width:10px; height:10px; border-radius:3px; background:#0033CC;"></span>Период A</span>
+      <span style="display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--text-dim);"><span style="width:10px; height:10px; border-radius:3px; background:#B888FF;"></span>Период B</span>
+    `}));
+    cmpCard.appendChild(buildBarChart(
+      ['Выручка','Себест.','Маржа','ROI %'],
+      [B.revenue/1e6, B.cost/1e6, B.margin/1e6, B.cost ? B.margin/B.cost*100 : 0],
+      '#B888FF'
+    ));
+    p.appendChild(cmpCard);
+  }
+
+  // === P&L by region ===
+  p.appendChild(el('div', { class: 'section-title', html: `<span class="dot"></span>P&L по регионам ${FIN_FILTER.region !== 'all' ? `(фильтр: ${regions.find(r=>r.key===FIN_FILTER.region)?.name || FIN_FILTER.region})` : ''}` }));
+  const tcard = el('div', { class: 'card' });
+  const tbl = el('table', { class: 'table' });
+  if (regions.length === 0) {
+    tbl.innerHTML = `<tbody><tr><td colspan="6" style="text-align:center; padding:30px; color:var(--text-muted);">Нет регионов. Подключитесь к PVZ API.</td></tr></tbody>`;
+  } else {
+    const totalBr = regions.reduce((s,r) => s + r.branches, 0) || 1;
+    tbl.innerHTML = `
+      <thead><tr><th>Регион</th><th>Филиалов</th><th>Выручка</th><th>Себест.</th><th>Маржа</th><th>Маржа %</th></tr></thead>
+      <tbody>
+        ${regions.filter(r => FIN_FILTER.region === 'all' || r.key === FIN_FILTER.region).map(r => {
+          const ratio = r.branches / totalBr;
+          const rev = Math.round(A.revenue * ratio) / 1e6;
+          const cost = Math.round(A.cost * ratio) / 1e6;
+          const margin = +(rev - cost).toFixed(1);
+          const mpct = rev ? +(margin / rev * 100).toFixed(1) : 0;
+          return `<tr>
+            <td><b>${r.name}</b></td>
+            <td style="font-family:JetBrains Mono; font-weight:700;">${r.branches}</td>
+            <td style="font-family:JetBrains Mono;">${fmtMoney(rev)}M</td>
+            <td style="font-family:JetBrains Mono; color:var(--text-dim);">${fmtMoney(cost)}M</td>
+            <td style="font-family:JetBrains Mono; font-weight:700; color:${margin>=0?'var(--success)':'var(--danger)'};">${fmtMoney(margin)}M</td>
+            <td><span class="pill ${mpct > 30 ? 'success' : mpct > 15 ? 'brand' : mpct > 0 ? 'warning' : 'danger'}">${mpct}%</span></td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    `;
+  }
   tcard.appendChild(tbl);
   p.appendChild(tcard);
+}
+
+function resetFinanceFilter() {
+  FIN_FILTER.scope = 'all';
+  FIN_FILTER.region = 'all';
+  FIN_FILTER.fromA = _dm(30);
+  FIN_FILTER.toA   = new Date().toISOString().slice(0,10);
+  FIN_FILTER.fromB = _dm(60);
+  FIN_FILTER.toB   = _dm(31);
+  FIN_FILTER.compareOn = true;
+  FIN_FILTER.manualRevenue = '';
+  FIN_FILTER.manualCosts   = '';
+  renderFinance();
 }
 
 /* ==================== PAGE: TEAM ==================== */
