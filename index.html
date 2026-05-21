@@ -1811,6 +1811,9 @@ function renderHomeCourier(p) {
   const totalSum   = orders.reduce((s,o) => s + (Number(o.sumUZS)||0), 0);
 
   // KPI tiles — courier focus
+  const costs = calculateCosts('courier');
+  const courierCost = costs.courier.total + costs.orders.processing;
+  const courierMargin = totalSum - courierCost;
   const kpis = [
     { l: 'Всего курьеров',      v: fmt(couriers.length), u: '',   icon: 'team',      kind: ''            },
     { l: 'На маршруте',         v: fmt(onRoute),         u: '',   icon: 'logistics', kind: 'kpi-success' },
@@ -1820,6 +1823,12 @@ function renderHomeCourier(p) {
     { l: 'Доставлено',          v: fmt(completed),       u: '',   icon: 'star',      kind: 'kpi-success' },
     { l: 'Общий вес',           v: fmt(totalKg),         u: 'кг', icon: 'fleet',     kind: 'kpi-warning' },
     { l: 'Оборот',              v: fmtMoney(totalSum/1e6), u: 'млн UZS', icon: 'money', kind: '' },
+    { l: 'Себестоимость',       v: fmtMoney(courierCost/1e6), u: 'млн UZS', d: 'ФОТ + топливо + обработка', icon: 'finance', kind: 'kpi-warning' },
+    { l: 'ФОТ курьеров',        v: fmtMoney(costs.courier.salaries/1e6), u: 'млн UZS', d: `${couriers.length} × ${fmtMoney(COST_CONFIG.courier.salaryPerCourier/1e6)}M`, icon: 'team', kind: 'kpi-danger' },
+    { l: 'Расход топлива',      v: fmtMoney(costs.courier.fuel/1e6), u: 'млн UZS', d: `${fmt(costs.monthlyKm)} км × ${fmt(COST_CONFIG.courier.fuelPerKm)} UZS`, icon: 'fleet', kind: 'kpi-warning' },
+    { l: 'Маржа',               v: courierMargin >= 0 ? fmtMoney(courierMargin/1e6) : '−' + fmtMoney(-courierMargin/1e6), u: 'млн UZS',
+                                d: totalSum ? Math.round(courierMargin/totalSum*100) + '%' : 'нет выручки',
+                                icon: 'trend', kind: courierMargin >= 0 ? 'kpi-success' : 'kpi-danger' },
   ];
   p.appendChild(buildKpiGrid(kpis));
 
@@ -1910,7 +1919,9 @@ function renderHomePVZ(p) {
   const withBanner = liveBranches.filter(b => b.banner && String(b.banner).length > 10).length;
   const withCoords = liveBranches.filter(b => typeof b.lat === 'number' && typeof b.lng === 'number').length;
 
-  // KPI tiles — PVZ focus
+  // KPI tiles — PVZ focus + себестоимость
+  const costs = calculateCosts('pvz');
+  const rentBranches = liveBranches.filter(b => !b.closeDate && b.rent).length;
   const kpis = [
     { l: 'Всего ПВЗ',       v: fmt(total),        u: '',  icon: 'branches', kind: ''            },
     { l: 'Действующие',     v: fmt(active),       u: '',  icon: 'star',     kind: 'kpi-success' },
@@ -1918,8 +1929,12 @@ function renderHomePVZ(p) {
     { l: 'Регионов',        v: fmt(liveRegions.length), u: '',  icon: 'map', kind: 'kpi-purple' },
     { l: 'С GPS-меткой',    v: fmt(withCoords),   u: '', icon: 'map',      kind: '' },
     { l: 'С баннером',      v: fmt(withBanner),   u: '', icon: 'reports',  kind: 'kpi-pink' },
-    { l: 'Без баннера',     v: fmt(total - withBanner), u: '', icon: 'alert', kind: 'kpi-warning' },
+    { l: 'На аренде',       v: fmt(rentBranches), u: '/' + active, d: active ? Math.round(rentBranches/active*100)+'%' : '—', icon: 'alert', kind: 'kpi-warning' },
     { l: '% активных',      v: total ? Math.round(active/total*100) : 0, u: '%', icon: 'trend',    kind: 'kpi-success' },
+    { l: 'Себестоимость ПВЗ', v: fmtMoney(costs.pvz.total/1e6), u: 'млн UZS', d: 'аренда + ФОТ + комм.', icon: 'finance', kind: 'kpi-warning' },
+    { l: 'Аренда',          v: fmtMoney(costs.pvz.rent/1e6), u: 'млн UZS', d: `${rentBranches} × ${fmtMoney(COST_CONFIG.pvz.rentPerActive/1e6)}M`, icon: 'finance', kind: 'kpi-danger' },
+    { l: 'ФОТ менеджеров',  v: fmtMoney(costs.pvz.salaries/1e6), u: 'млн UZS', d: `${active} × ${fmtMoney(COST_CONFIG.pvz.managerSalary/1e6)}M`, icon: 'team', kind: '' },
+    { l: 'Коммунальные',    v: fmtMoney(costs.pvz.utilities/1e6), u: 'млн UZS', d: `${active} филиала × ${fmtMoney(COST_CONFIG.pvz.utilities/1e6)}M`, icon: 'package', kind: 'kpi-purple' },
   ];
   p.appendChild(buildKpiGrid(kpis));
 
@@ -2007,7 +2022,10 @@ function renderHomeLogistics(p) {
   const totalKg     = orders.reduce((s,o) => s + (Number(o.weightKg)||0), 0);
   const totalSum    = orders.reduce((s,o) => s + (Number(o.sumUZS)||0), 0);
 
-  // KPI tiles — logistics focus
+  // KPI tiles — logistics focus + себестоимость
+  const costs = calculateCosts('logistics');
+  const logTotal  = costs.vehicle.total + costs.courier.salaries + costs.orders.processing;
+  const logMargin = totalSum - logTotal;
   const kpis = [
     { l: 'Маршрутов',          v: fmt(routes.length), u: '', icon: 'logistics',kind: ''            },
     { l: 'Активные',           v: fmt(routes.filter(r => r.status === 'progress' || r.status === 'ready').length), u: '', icon: 'star', kind: 'kpi-success' },
@@ -2017,6 +2035,12 @@ function renderHomeLogistics(p) {
     { l: 'Машин в работе',     v: fmt(onRouteV),      u: '/' + vehicles.length, icon: 'fleet', kind: '' },
     { l: 'Общий вес',          v: fmt(totalKg),       u: 'кг', icon: 'fleet',  kind: 'kpi-warning' },
     { l: 'Оборот',             v: fmtMoney(totalSum/1e6), u: 'млн UZS', icon: 'money', kind: 'kpi-success' },
+    { l: 'Себестоимость',      v: fmtMoney(logTotal/1e6), u: 'млн UZS', d: 'ФОТ + топливо + ТО', icon: 'finance', kind: 'kpi-warning' },
+    { l: 'Топливо',            v: fmtMoney(costs.vehicle.fuel/1e6), u: 'млн UZS', d: `${fmt(costs.monthlyKm)} км × ${fmt(COST_CONFIG.vehicle.fuelPerKm)} UZS`, icon: 'fleet', kind: 'kpi-warning' },
+    { l: 'ТО автопарка',       v: fmtMoney(costs.vehicle.maintenance/1e6), u: 'млн UZS', d: `${vehicles.length} × ${fmtMoney(COST_CONFIG.vehicle.maintenancePerVehicle/1e6)}M`, icon: 'alert', kind: 'kpi-danger' },
+    { l: 'Маржа',              v: logMargin >= 0 ? fmtMoney(logMargin/1e6) : '−' + fmtMoney(-logMargin/1e6), u: 'млн UZS',
+                                d: totalSum ? Math.round(logMargin/totalSum*100) + '%' : 'нет выручки',
+                                icon: 'trend', kind: logMargin >= 0 ? 'kpi-success' : 'kpi-danger' },
   ];
   p.appendChild(buildKpiGrid(kpis));
 
@@ -2114,6 +2138,64 @@ function renderHomeLogistics(p) {
   }
   row.appendChild(oCard);
   p.appendChild(row);
+}
+
+/* ============ COST CALCULATOR — себестоимость ============ */
+// Коэффициенты по умолчанию (UZS). Хранятся в localStorage, можно править через Настройки.
+const DEFAULT_COSTS = {
+  courier:    { salaryPerCourier: 4500000,  fuelPerKm: 1500, perDelivery: 8000 },
+  vehicle:    { maintenancePerVehicle: 800000, fuelPerKm: 1500 },
+  pvz:        { rentPerActive: 3500000, managerSalary: 5000000, utilities: 600000 },
+  perOrder:   { processing: 2500, sorting: 1500 },
+};
+let COST_CONFIG = (function () {
+  try { return Object.assign({}, DEFAULT_COSTS, JSON.parse(localStorage.getItem('ipost-cost-config') || '{}')); }
+  catch { return { ...DEFAULT_COSTS }; }
+})();
+function saveCostConfig() { localStorage.setItem('ipost-cost-config', JSON.stringify(COST_CONFIG)); }
+
+// Returns cost numbers in UZS based on live data and scope ('courier' | 'pvz' | 'logistics' | 'all')
+function calculateCosts(scope) {
+  const live = STATE.live;
+  const drivers   = (live && live.dispatch && live.dispatch.drivers)   || [];
+  const vehicles  = (live && live.dispatch && live.dispatch.vehicles)  || [];
+  const orders    = (live && live.dispatch && live.dispatch.orders)    || [];
+  const branches  = (live && live.branches) || [];
+  const totalKm   = vehicles.reduce((s, v) => s + (Number(v.mileage) || 0), 0);
+  const monthlyKm = vehicles.length ? Math.round(totalKm * 0.03) : 0;  // оценка пробега за месяц
+  const activeBr  = branches.filter(b => !b.closeDate).length;
+  const rentBr    = branches.filter(b => !b.closeDate && b.rent).length;
+
+  const courierSalary   = drivers.length * COST_CONFIG.courier.salaryPerCourier;
+  const courierFuel     = monthlyKm * COST_CONFIG.courier.fuelPerKm;
+  const courierDelivery = orders.length * COST_CONFIG.courier.perDelivery;
+  const courierTotal    = courierSalary + courierFuel + courierDelivery;
+
+  const vehicleMaintenance = vehicles.length * COST_CONFIG.vehicle.maintenancePerVehicle;
+  const vehicleFuel        = monthlyKm * COST_CONFIG.vehicle.fuelPerKm;
+  const vehicleTotal       = vehicleMaintenance + vehicleFuel;
+
+  const pvzRent      = rentBr * COST_CONFIG.pvz.rentPerActive;
+  const pvzSalaries  = activeBr * COST_CONFIG.pvz.managerSalary;
+  const pvzUtilities = activeBr * COST_CONFIG.pvz.utilities;
+  const pvzTotal     = pvzRent + pvzSalaries + pvzUtilities;
+
+  const orderProc = orders.length * (COST_CONFIG.perOrder.processing + COST_CONFIG.perOrder.sorting);
+
+  const revenue = orders.reduce((s, o) => s + (Number(o.sumUZS) || 0), 0);
+
+  const out = {
+    courier:    { salaries: courierSalary, fuel: courierFuel, delivery: courierDelivery, total: courierTotal },
+    vehicle:    { maintenance: vehicleMaintenance, fuel: vehicleFuel, total: vehicleTotal },
+    pvz:        { rent: pvzRent, salaries: pvzSalaries, utilities: pvzUtilities, total: pvzTotal },
+    orders:     { processing: orderProc },
+    revenue,
+    grandTotal: courierTotal + vehicleTotal + pvzTotal + orderProc,
+    monthlyKm,
+  };
+  out.margin = revenue - out.grandTotal;
+  out.marginPct = revenue ? Math.round((revenue - out.grandTotal) / revenue * 100) : null;
+  return out;
 }
 
 /* ============ Helper: KPI grid ============ */
@@ -2632,105 +2714,320 @@ function initMap(elemId, regions) {
   }
 }
 
-/* ==================== PAGE: ANALYTICS ==================== */
+/* ==================== PAGE: ANALYTICS (3-tab) ==================== */
+if (!STATE.analyticsTab) STATE.analyticsTab = 'courier';
+
 function renderAnalytics() {
   const c = $('#content');
   c.innerHTML = '';
   const p = el('div', { class: 'page active' });
   c.appendChild(p);
 
-  // KPIs
-  const kg = el('div', { class: 'kpi-grid' });
-  [
-    { l: 'CAC',          v: '24.8K', u: 'UZS',  d: '−6.2%',  dir: 'up',   icon: 'money',     kind: 'kpi-success' },
-    { l: 'LTV',          v: '184K',  u: 'UZS',  d: '+18.4%', dir: 'up',   icon: 'trend',     kind: 'kpi-success' },
-    { l: 'LTV/CAC',      v: '7.4x',  u: '',     d: '+1.1',   dir: 'up',   icon: 'star',      kind: ''            },
-    { l: 'Конверсия B2B',v: '32.6',  u: '%',    d: '+2.4%',  dir: 'up',   icon: 'analytics', kind: 'kpi-purple'  },
-  ].forEach(k => kg.appendChild(el('div', { class: 'kpi ' + k.kind, html: `
-    <div class="kpi-head">
-      <div class="kpi-label">${k.l}</div>
-      <div class="kpi-icon">${ICONS[k.icon]}</div>
-    </div>
-    <div class="kpi-value">${k.v}<span class="unit">${k.u}</span></div>
-    <div class="kpi-foot"><span class="delta ${k.dir}">${k.dir === 'up' ? '▲' : '▼'} ${k.d}</span> к прошл. периоду</div>
-  `})));
-  p.appendChild(kg);
+  const live = STATE.live;
+  const lk = live && live.kpis;
 
-  // Forecasting
-  const fcCard = el('div', { class: 'card' });
-  fcCard.appendChild(el('div', { class: 'card-head', html: `
-    <div><div class="h">Прогноз выручки</div><div class="sub">Машинное обучение на исторических данных — 12 месяцев вперёд</div></div>
-  `}));
-  fcCard.appendChild(buildAreaChart(seedSeries(24, 90, 18), seedSeries(24, 70, 14)));
-  fcCard.appendChild(el('div', { class: 'chart-legend', html: `
-    <span class="legend-item"><span class="legend-dot" style="background:linear-gradient(135deg,#3CCBFF,#0033CC)"></span>Прогноз (млн UZS)</span>
-    <span class="legend-item"><span class="legend-dot" style="background:linear-gradient(135deg,#B888FF,#8B5CFF)"></span>Факт</span>
-  `}));
-  p.appendChild(fcCard);
-  p.appendChild(el('div', { style: 'height:14px;' }));
-
-  // Cohort + Donut
-  const row = el('div', { class: 'row r-2-1' });
-  const cohort = el('div', { class: 'card' });
-  cohort.appendChild(el('div', { class: 'card-head', html: `
-    <div><div class="h">Когортный анализ удержания клиентов</div><div class="sub">% активных клиентов по месяцам после регистрации</div></div>
-  `}));
-  const grid = el('div', { style: 'display:grid; grid-template-columns: 80px repeat(12,1fr); gap:4px;' });
-  grid.appendChild(el('div', {}));
-  for (let m = 0; m < 12; m++) grid.appendChild(el('div', { style: 'font-size:10px; color:var(--text-muted); text-align:center; font-family:JetBrains Mono;' }, 'M' + m));
-  const months = ['Янв 25','Фев 25','Мар 25','Апр 25','Май 25','Июн 25'];
-  for (let i = 0; i < 6; i++) {
-    grid.appendChild(el('div', { style: 'font-size:10.5px; color:var(--text-dim); padding:6px 4px;' }, months[i]));
-    for (let m = 0; m < 12; m++) {
-      const ret = Math.max(0, Math.round(100 - m*7 - i*2 + Math.sin(i+m)*4));
-      const lightness = ret / 100;
-      const c = el('div', { html: m < 12 - i ? ret + '%' : '' });
-      c.style.cssText = `aspect-ratio:1; min-height:32px; border-radius:5px; background: rgba(60,203,255, ${0.1 + lightness*0.7}); display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:600; color:${lightness > 0.5 ? '#fff' : 'var(--text-dim)'};`;
-      grid.appendChild(c);
-    }
-  }
-  cohort.appendChild(grid);
-  row.appendChild(cohort);
-
-  const donutCard = el('div', { class: 'card' });
-  donutCard.appendChild(el('div', { class: 'card-head', html: `
-    <div><div class="h">Источники выручки</div><div class="sub">По типу клиентов</div></div>
-  `}));
-  donutCard.appendChild(el('div', { style: 'display:flex; justify-content:center; padding:8px 0 14px;' }, buildDonut([
-    { value: 48, color: '#0033CC', label: 'B2B Маркетплейсы' },
-    { value: 22, color: '#3CCBFF', label: 'B2B Ритейл' },
-    { value: 18, color: '#B888FF', label: 'B2C' },
-    { value: 12, color: '#2CE0A8', label: 'Партнёры' },
-  ])));
-  const lg = el('div', { style: 'display:flex; flex-direction:column; gap:6px;' });
-  const parts = [
-    { v: 48, c: '#0033CC', l: 'B2B Маркетплейсы' },
-    { v: 22, c: '#3CCBFF', l: 'B2B Ритейл' },
-    { v: 18, c: '#B888FF', l: 'B2C' },
-    { v: 12, c: '#2CE0A8', l: 'Партнёры' },
+  // Tab bar — reuse home-tabs styles
+  const tabs = el('div', { class: 'home-tabs' });
+  const TAB_DEFS = [
+    { id: 'courier',   label: 'Аналитика курьерской', count: lk ? lk.drivers.total : 0, icon: 'courier'   },
+    { id: 'pvz',       label: 'Аналитика ПВЗ',        count: lk ? lk.branches.total: 0, icon: 'pvz'       },
+    { id: 'logistics', label: 'Аналитика логистики',  count: lk ? lk.routes.total  : 0, icon: 'logistics' },
   ];
-  for (const x of parts) {
-    lg.appendChild(el('div', { style: 'display:flex; align-items:center; justify-content:space-between; font-size:12px;', html: `
-      <span style="display:flex; align-items:center; gap:8px;"><span style="width:10px; height:10px; border-radius:3px; background:${x.c};"></span>${x.l}</span>
-      <span style="font-family:JetBrains Mono; font-weight:700;">${x.v}%</span>
-    `}));
+  for (const t of TAB_DEFS) {
+    tabs.appendChild(el('button', {
+      class: 'home-tab' + (STATE.analyticsTab === t.id ? ' active' : ''),
+      onclick: () => { STATE.analyticsTab = t.id; renderAnalytics(); },
+      html: `<span class="tab-icon">${HOME_TAB_ICONS[t.icon]}</span><span>${t.label}</span><span class="tab-count">${fmt(t.count)}</span>`,
+    }));
   }
-  donutCard.appendChild(lg);
+  p.appendChild(tabs);
+
+  switch (STATE.analyticsTab) {
+    case 'pvz':       return renderAnalyticsPVZ(p);
+    case 'logistics': return renderAnalyticsLogistics(p);
+    case 'courier':
+    default:          return renderAnalyticsCourier(p);
+  }
+}
+
+/* ============ ANALYTICS: COURIER ============ */
+function renderAnalyticsCourier(p) {
+  const couriers = getAllCouriers();
+  const orders   = getAllOrders();
+  const costs    = calculateCosts('courier');
+
+  const completed = orders.filter(o => o.status === 'completed').length;
+  const totalKg   = orders.reduce((s,o) => s + (Number(o.weightKg)||0), 0);
+  const totalSum  = orders.reduce((s,o) => s + (Number(o.sumUZS)||0), 0);
+  const avgChk    = orders.length ? Math.round(totalSum / orders.length) : 0;
+  const avgWeight = orders.length ? (totalKg / orders.length).toFixed(1) : 0;
+  const onTimeAvg = couriers.length ? Math.round(couriers.reduce((s,d)=>s+(d.onTimePct||0),0)/couriers.length) : 0;
+  const ratingAvg = couriers.length ? (couriers.reduce((s,d)=>s+(d.rating||0),0)/couriers.length).toFixed(2) : 0;
+  const courierCost = costs.courier.total + costs.orders.processing;
+  const costPerOrder = orders.length ? Math.round(courierCost / orders.length) : 0;
+  const costPerKg    = totalKg ? Math.round(courierCost / totalKg) : 0;
+
+  const kpis = [
+    { l: 'Средний чек',         v: fmt(avgChk),            u: 'UZS',     icon: 'money',  kind: '' },
+    { l: 'Средний вес посылки', v: avgWeight,              u: 'кг',      icon: 'fleet',  kind: 'kpi-warning' },
+    { l: 'В срок · среднее',    v: onTimeAvg + '%',        u: '',        icon: 'clock',  kind: 'kpi-success' },
+    { l: 'Рейтинг курьеров',    v: '★ ' + ratingAvg,       u: '/5',      icon: 'star',   kind: '' },
+    { l: 'Себестоимость',       v: fmtMoney(courierCost/1e6), u: 'млн UZS', icon: 'finance', kind: 'kpi-warning' },
+    { l: 'Стоимость / заказ',   v: fmt(costPerOrder),      u: 'UZS',     icon: 'package', kind: 'kpi-danger' },
+    { l: 'Стоимость / кг',      v: fmt(costPerKg),         u: 'UZS',     icon: 'fleet',   kind: 'kpi-danger' },
+    { l: 'Маржа',               v: fmtMoney((totalSum-courierCost)/1e6), u: 'млн UZS',
+                                d: totalSum ? Math.round((totalSum-courierCost)/totalSum*100) + '%' : '—',
+                                icon: 'trend', kind: (totalSum-courierCost) >= 0 ? 'kpi-success' : 'kpi-danger' },
+  ];
+  p.appendChild(buildKpiGrid(kpis));
+
+  // Cost breakdown donut + bar by courier
+  p.appendChild(el('div', { class: 'section-title', html: `<span class="dot"></span>Структура расходов курьерской` }));
+  const row = el('div', { class: 'row r-2-1' });
+
+  // Bar chart: deliveries per courier
+  const barCard = el('div', { class: 'card' });
+  barCard.appendChild(el('div', { class: 'card-head', html: `<div><div class="h">Доставки по курьерам</div><div class="sub">Сегодня</div></div>`}));
+  if (couriers.length === 0) {
+    barCard.appendChild(el('div', { style: 'padding:40px; text-align:center; color:var(--text-muted);', html: 'Нет курьеров' }));
+  } else {
+    const sorted = [...couriers].sort((a,b) => (b.deliveriesToday||0) - (a.deliveriesToday||0)).slice(0, 10);
+    barCard.appendChild(buildBarChart(
+      sorted.map(d => (d.name||'?').split(' ')[0].slice(0,6)),
+      sorted.map(d => d.deliveriesToday || 0),
+      '#3CCBFF'
+    ));
+  }
+  row.appendChild(barCard);
+
+  // Donut: cost structure
+  const donutCard = el('div', { class: 'card' });
+  donutCard.appendChild(el('div', { class: 'card-head', html: `<div><div class="h">Себестоимость</div><div class="sub">${fmtMoney(courierCost/1e6)} млн UZS</div></div>`}));
+  donutCard.appendChild(el('div', { style: 'display:flex; justify-content:center; padding:8px 0 14px;' }, buildDonut([
+    { value: costs.courier.salaries, color: '#0033CC' },
+    { value: costs.courier.fuel,     color: '#FFB840' },
+    { value: costs.courier.delivery, color: '#B888FF' },
+    { value: costs.orders.processing,color: '#2CE0A8' },
+  ])));
+  donutCard.appendChild(el('div', { style: 'display:flex; flex-direction:column; gap:6px;', html: `
+    <div style="display:flex; justify-content:space-between; font-size:12px;"><span><span style="width:10px;height:10px;background:#0033CC;border-radius:3px;display:inline-block;margin-right:8px;"></span>ФОТ курьеров</span><span style="font-family:JetBrains Mono; font-weight:700;">${fmtMoney(costs.courier.salaries/1e6)}M</span></div>
+    <div style="display:flex; justify-content:space-between; font-size:12px;"><span><span style="width:10px;height:10px;background:#FFB840;border-radius:3px;display:inline-block;margin-right:8px;"></span>Топливо</span><span style="font-family:JetBrains Mono; font-weight:700;">${fmtMoney(costs.courier.fuel/1e6)}M</span></div>
+    <div style="display:flex; justify-content:space-between; font-size:12px;"><span><span style="width:10px;height:10px;background:#B888FF;border-radius:3px;display:inline-block;margin-right:8px;"></span>Доставка ${fmt(orders.length)} × ${fmt(COST_CONFIG.courier.perDelivery)}</span><span style="font-family:JetBrains Mono; font-weight:700;">${fmtMoney(costs.courier.delivery/1e6)}M</span></div>
+    <div style="display:flex; justify-content:space-between; font-size:12px;"><span><span style="width:10px;height:10px;background:#2CE0A8;border-radius:3px;display:inline-block;margin-right:8px;"></span>Обработка заказов</span><span style="font-family:JetBrains Mono; font-weight:700;">${fmtMoney(costs.orders.processing/1e6)}M</span></div>
+  `}));
   row.appendChild(donutCard);
   p.appendChild(row);
 
-  // Bar chart per region
-  const barCard = el('div', { class: 'card' });
-  barCard.style.marginTop = '14px';
-  barCard.appendChild(el('div', { class: 'card-head', html: `
-    <div><div class="h">Сравнение регионов по выручке</div><div class="sub">Млн UZS · текущий месяц</div></div>
-  `}));
-  barCard.appendChild(buildBarChart(
-    REGIONS.slice(0,10).map(r => r.name.slice(0,5)),
-    REGIONS.slice(0,10).map(r => r.revenue),
+  // Hourly activity + status breakdown
+  p.appendChild(el('div', { class: 'section-title', html: `<span class="dot"></span>Активность по часам и статусы` }));
+  const hCard = el('div', { class: 'card' });
+  hCard.appendChild(el('div', { class: 'card-head', html: `<div><div class="h">Распределение заказов по часам</div><div class="sub">Сегодня</div></div>`}));
+  const hourCounts = new Array(24).fill(0);
+  for (const o of orders) {
+    const eta = String(o.eta || '').match(/^(\d{1,2})/);
+    const h = eta ? Math.min(23, Math.max(0, +eta[1])) : -1;
+    if (h >= 0) hourCounts[h]++;
+  }
+  hCard.appendChild(buildBarChart(
+    ['00','03','06','09','12','15','18','21'],
+    [0,3,6,9,12,15,18,21].map(h => hourCounts[h]),
     '#0033CC'
   ));
-  p.appendChild(barCard);
+  p.appendChild(hCard);
+}
+
+/* ============ ANALYTICS: PVZ ============ */
+function renderAnalyticsPVZ(p) {
+  const live = STATE.live;
+  const branches = (live && live.branches) || [];
+  const regions  = (live && live.regions)  || [];
+  const costs    = calculateCosts('pvz');
+
+  const total  = (live && live.branchesTotal) || 0;
+  const active = branches.filter(b => !b.closeDate).length;
+  const closed = branches.filter(b => b.closeDate).length;
+  const rent   = branches.filter(b => !b.closeDate && b.rent).length;
+  const withBank = branches.filter(b => b.bank && (b.bank.account || b.bank.inn)).length;
+  const avgCostPerBr = active ? Math.round(costs.pvz.total / active) : 0;
+
+  const kpis = [
+    { l: 'Покрытие регионов',   v: fmt(regions.length),    u: '/14',   icon: 'map',     kind: 'kpi-purple' },
+    { l: 'Сред. филиалов/регион', v: regions.length ? (active/regions.length).toFixed(1) : 0, u: '', icon: 'trend', kind: '' },
+    { l: '% действующих',       v: total ? Math.round(active/total*100) : 0, u: '%', icon: 'star', kind: 'kpi-success' },
+    { l: 'Доля аренды',         v: active ? Math.round(rent/active*100) : 0, u: '%', icon: 'alert', kind: 'kpi-warning' },
+    { l: 'Себестоимость ПВЗ',   v: fmtMoney(costs.pvz.total/1e6), u: 'млн UZS', icon: 'finance', kind: 'kpi-warning' },
+    { l: 'Стоим. / филиал',     v: fmt(avgCostPerBr),      u: 'UZS', d: 'в месяц', icon: 'branches', kind: 'kpi-danger' },
+    { l: 'Аренда / месяц',      v: fmtMoney(costs.pvz.rent/1e6), u: 'млн UZS', d: rent + ' филиалов', icon: 'finance', kind: 'kpi-danger' },
+    { l: 'ФОТ менеджеров',      v: fmtMoney(costs.pvz.salaries/1e6), u: 'млн UZS', d: active + ' × ' + fmtMoney(COST_CONFIG.pvz.managerSalary/1e6) + 'M', icon: 'team', kind: '' },
+  ];
+  p.appendChild(buildKpiGrid(kpis));
+
+  // Bar by region + donut: cost
+  p.appendChild(el('div', { class: 'section-title', html: `<span class="dot"></span>Распределение и себестоимость` }));
+  const row = el('div', { class: 'row r-2-1' });
+
+  const barCard = el('div', { class: 'card' });
+  barCard.appendChild(el('div', { class: 'card-head', html: `<div><div class="h">Филиалы по регионам</div><div class="sub">${regions.length} регионов</div></div>`}));
+  if (regions.length === 0) {
+    barCard.appendChild(el('div', { style: 'padding:40px; text-align:center; color:var(--text-muted);', html: 'Нет регионов' }));
+  } else {
+    const sortedRegs = [...regions].sort((a,b) => b.branches - a.branches);
+    barCard.appendChild(buildBarChart(
+      sortedRegs.map(r => (r.name||'?').slice(0,7)),
+      sortedRegs.map(r => r.branches),
+      '#0033CC'
+    ));
+  }
+  row.appendChild(barCard);
+
+  const donutCard = el('div', { class: 'card' });
+  donutCard.appendChild(el('div', { class: 'card-head', html: `<div><div class="h">Себестоимость ПВЗ</div><div class="sub">${fmtMoney(costs.pvz.total/1e6)} млн UZS</div></div>`}));
+  donutCard.appendChild(el('div', { style: 'display:flex; justify-content:center; padding:8px 0 14px;' }, buildDonut([
+    { value: costs.pvz.rent,      color: '#FF5577' },
+    { value: costs.pvz.salaries,  color: '#0033CC' },
+    { value: costs.pvz.utilities, color: '#B888FF' },
+  ])));
+  donutCard.appendChild(el('div', { style: 'display:flex; flex-direction:column; gap:6px;', html: `
+    <div style="display:flex; justify-content:space-between; font-size:12px;"><span><span style="width:10px;height:10px;background:#FF5577;border-radius:3px;display:inline-block;margin-right:8px;"></span>Аренда</span><span style="font-family:JetBrains Mono; font-weight:700;">${fmtMoney(costs.pvz.rent/1e6)}M</span></div>
+    <div style="display:flex; justify-content:space-between; font-size:12px;"><span><span style="width:10px;height:10px;background:#0033CC;border-radius:3px;display:inline-block;margin-right:8px;"></span>ФОТ менеджеров</span><span style="font-family:JetBrains Mono; font-weight:700;">${fmtMoney(costs.pvz.salaries/1e6)}M</span></div>
+    <div style="display:flex; justify-content:space-between; font-size:12px;"><span><span style="width:10px;height:10px;background:#B888FF;border-radius:3px;display:inline-block;margin-right:8px;"></span>Коммунальные</span><span style="font-family:JetBrains Mono; font-weight:700;">${fmtMoney(costs.pvz.utilities/1e6)}M</span></div>
+  `}));
+  row.appendChild(donutCard);
+  p.appendChild(row);
+
+  // Cohort by region — opening dates
+  p.appendChild(el('div', { class: 'section-title', html: `<span class="dot"></span>Структура реестра` }));
+  const tCard = el('div', { class: 'card' });
+  tCard.appendChild(el('div', { class: 'card-head', html: `<div><div class="h">Активность по регионам</div><div class="sub">Активные / закрытые / на аренде</div></div>`}));
+  const tbl = el('table', { class: 'table' });
+  tbl.innerHTML = `
+    <thead><tr><th>Регион</th><th>Всего</th><th>Активные</th><th>Закрыто</th><th>Аренда</th><th>% акт.</th></tr></thead>
+    <tbody>
+      ${regions.slice(0, 14).map(r => {
+        const rentInR = branches.filter(b => b.regionKey === r.key && !b.closeDate && b.rent).length;
+        const pct = r.branches ? Math.round(r.active/r.branches*100) : 0;
+        return `<tr>
+          <td><b>${r.name}</b></td>
+          <td style="font-family:JetBrains Mono; font-weight:700;">${fmt(r.branches)}</td>
+          <td style="font-family:JetBrains Mono; color:var(--success);">${fmt(r.active)}</td>
+          <td style="font-family:JetBrains Mono; color:var(--danger);">${fmt(r.closed)}</td>
+          <td style="font-family:JetBrains Mono; color:var(--warning);">${fmt(rentInR)}</td>
+          <td><span class="pill ${pct > 90 ? 'success' : pct > 70 ? 'brand' : 'warning'}">${pct}%</span></td>
+        </tr>`;
+      }).join('')}
+    </tbody>
+  `;
+  tCard.appendChild(tbl);
+  p.appendChild(tCard);
+}
+
+/* ============ ANALYTICS: LOGISTICS ============ */
+function renderAnalyticsLogistics(p) {
+  const live = STATE.live;
+  const routes   = (live && live.dispatch && live.dispatch.routes)   || [];
+  const orders   = (live && live.dispatch && live.dispatch.orders)   || [];
+  const vehicles = (live && live.dispatch && live.dispatch.vehicles) || [];
+  const drivers  = (live && live.dispatch && live.dispatch.drivers)  || [];
+  const costs    = calculateCosts('logistics');
+
+  const totalKg     = orders.reduce((s,o) => s + (Number(o.weightKg)||0), 0);
+  const totalSum    = orders.reduce((s,o) => s + (Number(o.sumUZS)||0), 0);
+  const totalKm     = vehicles.reduce((s,v) => s + (Number(v.mileage)||0), 0);
+  const avgLoad     = vehicles.length ? Math.round(vehicles.reduce((s,v) => s + (Number(v.fuelPct)||0), 0) / vehicles.length) : 0;
+  const avgFuel     = vehicles.length ? Math.round(vehicles.reduce((s,v) => s + (Number(v.fuelPct)||0), 0) / vehicles.length) : 0;
+  const completedRt = routes.filter(r => r.status === 'done').length;
+  const issueRt     = routes.filter(r => r.status === 'issue').length;
+  const logTotal    = costs.vehicle.total + costs.courier.salaries + costs.orders.processing;
+  const costPerKm   = costs.monthlyKm ? Math.round(logTotal / costs.monthlyKm) : 0;
+  const costPerOrder= orders.length ? Math.round(logTotal / orders.length) : 0;
+
+  const kpis = [
+    { l: 'Общий пробег',        v: fmt(totalKm),  u: 'км',  icon: 'fleet',     kind: '' },
+    { l: 'Пробег / мес',        v: fmt(costs.monthlyKm), u: 'км', icon: 'logistics', kind: 'kpi-purple' },
+    { l: 'Сред. топливо',       v: avgFuel + '%', u: '',    icon: 'fleet',     kind: 'kpi-warning' },
+    { l: 'Завершённых маршрутов', v: fmt(completedRt), u: '', icon: 'star',    kind: 'kpi-success' },
+    { l: 'Себестоимость',       v: fmtMoney(logTotal/1e6), u: 'млн UZS', icon: 'finance', kind: 'kpi-warning' },
+    { l: 'Стоимость / км',      v: fmt(costPerKm), u: 'UZS', icon: 'logistics', kind: 'kpi-danger' },
+    { l: 'Стоимость / заказ',   v: fmt(costPerOrder), u: 'UZS', icon: 'package', kind: 'kpi-danger' },
+    { l: 'Маржа',               v: fmtMoney((totalSum-logTotal)/1e6), u: 'млн UZS',
+                                d: totalSum ? Math.round((totalSum-logTotal)/totalSum*100) + '%' : '—',
+                                icon: 'trend', kind: (totalSum-logTotal) >= 0 ? 'kpi-success' : 'kpi-danger' },
+  ];
+  p.appendChild(buildKpiGrid(kpis));
+
+  // Bar: load per vehicle + donut: cost structure
+  p.appendChild(el('div', { class: 'section-title', html: `<span class="dot"></span>Автопарк и себестоимость` }));
+  const row = el('div', { class: 'row r-2-1' });
+
+  const barCard = el('div', { class: 'card' });
+  barCard.appendChild(el('div', { class: 'card-head', html: `<div><div class="h">Пробег по машинам</div><div class="sub">${vehicles.length} ТС</div></div>`}));
+  if (vehicles.length === 0) {
+    barCard.appendChild(el('div', { style: 'padding:40px; text-align:center; color:var(--text-muted);', html: 'Нет ТС' }));
+  } else {
+    const sortedV = [...vehicles].sort((a,b) => (b.mileage||0) - (a.mileage||0)).slice(0, 10);
+    barCard.appendChild(buildBarChart(
+      sortedV.map(v => (v.plate||v.id||'?').slice(-6)),
+      sortedV.map(v => Math.round((v.mileage||0)/1000)),
+      '#0033CC'
+    ));
+    barCard.appendChild(el('div', { style: 'text-align:center; font-size:10.5px; color:var(--text-muted); margin-top:4px;', html: 'тыс. км пробега' }));
+  }
+  row.appendChild(barCard);
+
+  const donutCard = el('div', { class: 'card' });
+  donutCard.appendChild(el('div', { class: 'card-head', html: `<div><div class="h">Структура себестоимости</div><div class="sub">${fmtMoney(logTotal/1e6)} млн UZS</div></div>`}));
+  donutCard.appendChild(el('div', { style: 'display:flex; justify-content:center; padding:8px 0 14px;' }, buildDonut([
+    { value: costs.vehicle.fuel,        color: '#FFB840' },
+    { value: costs.vehicle.maintenance, color: '#FF5577' },
+    { value: costs.courier.salaries,    color: '#0033CC' },
+    { value: costs.orders.processing,   color: '#2CE0A8' },
+  ])));
+  donutCard.appendChild(el('div', { style: 'display:flex; flex-direction:column; gap:6px;', html: `
+    <div style="display:flex; justify-content:space-between; font-size:12px;"><span><span style="width:10px;height:10px;background:#FFB840;border-radius:3px;display:inline-block;margin-right:8px;"></span>Топливо</span><span style="font-family:JetBrains Mono; font-weight:700;">${fmtMoney(costs.vehicle.fuel/1e6)}M</span></div>
+    <div style="display:flex; justify-content:space-between; font-size:12px;"><span><span style="width:10px;height:10px;background:#FF5577;border-radius:3px;display:inline-block;margin-right:8px;"></span>ТО автопарка</span><span style="font-family:JetBrains Mono; font-weight:700;">${fmtMoney(costs.vehicle.maintenance/1e6)}M</span></div>
+    <div style="display:flex; justify-content:space-between; font-size:12px;"><span><span style="width:10px;height:10px;background:#0033CC;border-radius:3px;display:inline-block;margin-right:8px;"></span>ФОТ водителей</span><span style="font-family:JetBrains Mono; font-weight:700;">${fmtMoney(costs.courier.salaries/1e6)}M</span></div>
+    <div style="display:flex; justify-content:space-between; font-size:12px;"><span><span style="width:10px;height:10px;background:#2CE0A8;border-radius:3px;display:inline-block;margin-right:8px;"></span>Обработка заказов</span><span style="font-family:JetBrains Mono; font-weight:700;">${fmtMoney(costs.orders.processing/1e6)}M</span></div>
+  `}));
+  row.appendChild(donutCard);
+  p.appendChild(row);
+
+  // Routes table
+  p.appendChild(el('div', { class: 'section-title', html: `<span class="dot"></span>Маршруты` }));
+  const tCard = el('div', { class: 'card' });
+  tCard.appendChild(el('div', { class: 'card-head', html: `<div><div class="h">Эффективность маршрутов</div><div class="sub">${routes.length} маршрутов · ${completedRt} завершено · ${issueRt} с проблемами</div></div>`}));
+  if (routes.length === 0) {
+    tCard.appendChild(el('div', { style: 'padding:40px; text-align:center; color:var(--text-muted);', html: 'Нет маршрутов в Dispatch' }));
+  } else {
+    const tbl = el('table', { class: 'table' });
+    tbl.innerHTML = `
+      <thead><tr><th>Маршрут</th><th>Водитель</th><th>Точки</th><th>Прогресс</th><th>Дистанция</th><th>Себест.</th><th>Статус</th></tr></thead>
+      <tbody>
+        ${routes.slice(0, 12).map(r => {
+          const d = drivers.find(x => x.id === r.driverId);
+          const km = Number(r.metrics?.distanceKm) || 0;
+          const cost = Math.round(km * (COST_CONFIG.vehicle.fuelPerKm + COST_CONFIG.courier.fuelPerKm));
+          const stops = r.metrics?.stops ?? (r.stopIds || []).length;
+          const progress = Number(r.progress) || 0;
+          const stat = r.status === 'progress' ? '<span class="pill success">В работе</span>'
+            : r.status === 'ready' ? '<span class="pill brand">Готов</span>'
+            : r.status === 'done' ? '<span class="pill muted">Завершён</span>'
+            : r.status === 'issue' ? '<span class="pill danger">Проблема</span>'
+            : '<span class="pill warning">' + (r.status||'—') + '</span>';
+          return `<tr>
+            <td><b>${r.name || r.id}</b></td>
+            <td>${d ? d.name : '—'}</td>
+            <td style="font-family:JetBrains Mono; font-weight:600;">${stops}</td>
+            <td><div style="display:flex; align-items:center; gap:8px;"><span style="font-family:JetBrains Mono; min-width:34px;">${progress}%</span><div class="mini-bar" style="width:60px;"><span style="width:${progress}%"></span></div></div></td>
+            <td style="font-family:JetBrains Mono;">${r.metrics?.distance || '—'}</td>
+            <td style="font-family:JetBrains Mono; color:var(--warning);">${fmt(cost)} UZS</td>
+            <td>${stat}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    `;
+    tCard.appendChild(tbl);
+  }
+  p.appendChild(tCard);
 }
 
 /* ==================== PAGE: MAP ==================== */
