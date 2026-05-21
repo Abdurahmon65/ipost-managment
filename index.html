@@ -667,6 +667,96 @@
     margin-top: 6px; margin-bottom: 22px;
   }
 
+  /* ==================== BANNER GRID (branch cards) ==================== */
+  .banner-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 14px;
+  }
+  .banner-card {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    display: flex; flex-direction: column;
+  }
+  .banner-card:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-lg);
+    border-color: var(--accent);
+  }
+  .banner-media {
+    position: relative;
+    height: 140px;
+    background: linear-gradient(135deg, var(--brand) 0%, var(--brand-deep) 100%);
+    overflow: hidden;
+  }
+  .banner-media img {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    display: block;
+    position: relative;
+    z-index: 2;
+  }
+  .banner-placeholder {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 64px; font-weight: 800;
+    color: rgba(255,255,255,0.25);
+    background: linear-gradient(135deg, var(--brand) 0%, var(--brand-deep) 100%);
+    z-index: 1;
+  }
+  .banner-media.no-img .banner-placeholder { z-index: 2; }
+  .banner-overlay {
+    position: absolute; inset: 0;
+    background: linear-gradient(180deg, transparent 50%, rgba(6,8,15,0.85) 100%);
+    z-index: 3;
+    pointer-events: none;
+  }
+  .banner-status {
+    position: absolute; top: 10px; right: 10px;
+    z-index: 4;
+  }
+  .banner-marking {
+    position: absolute; bottom: 10px; left: 10px;
+    z-index: 4;
+    padding: 4px 9px;
+    border-radius: 7px;
+    background: rgba(0,0,0,0.55);
+    backdrop-filter: blur(8px);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; font-weight: 700;
+    color: var(--brand-2);
+    border: 1px solid rgba(60,203,255,0.3);
+  }
+  .banner-body { padding: 14px 14px 16px; }
+  .banner-title {
+    font-weight: 700; font-size: 14px;
+    color: var(--text);
+    line-height: 1.3;
+    margin-bottom: 6px;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .banner-meta {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 11px; color: var(--text-dim);
+    flex-wrap: wrap;
+  }
+  .banner-meta .dot { color: var(--text-muted); }
+  .banner-phone {
+    font-size: 11px; font-family: 'JetBrains Mono', monospace;
+    color: var(--text-muted);
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+  }
+  .banner-card.is-closed .banner-media { filter: grayscale(0.7); }
+  .banner-card.is-closed .banner-title { color: var(--text-dim); }
+
   /* ==================== AI ASSISTANT ==================== */
   .ai-fab {
     position: fixed; right: 22px; bottom: 22px; z-index: 70;
@@ -2577,38 +2667,49 @@ function renderBranches() {
   `})));
   p.appendChild(kg);
 
-  // Regions cards — only live
-  const grid = el('div', { class: 'row r-4' });
-  if (liveRegions.length) {
-    const maxB = Math.max(1, ...liveRegions.map(r => r.branches));
-    for (const r of liveRegions) {
-      const pct = Math.round(r.branches / maxB * 100);
-      grid.appendChild(el('div', { class: 'card', style: 'cursor:pointer;', html: `
-        <div style="display:flex; align-items:center; gap:10px;">
-          <div class="user-avatar" style="border-radius:10px;">${(r.name||'?')[0]}</div>
-          <div style="flex:1; min-width:0;">
-            <div style="font-weight:700; font-size:13px;">${r.name}</div>
-            <div style="font-size:11px; color:var(--text-muted);">${r.branches} филиалов</div>
+  // Branch banner gallery — show recent branches with their banner image
+  const galleryCard = el('div', { class: 'card' });
+  galleryCard.style.padding = '18px';
+  galleryCard.appendChild(el('div', { class: 'card-head', html: `
+    <div><div class="h">Баннеры филиалов</div><div class="sub">${liveBranches.length ? 'Карточки ' + Math.min(20, liveBranches.length) + ' филиалов с баннерами' : 'Нет данных'}</div></div>
+    <div class="card-head-actions">
+      <span class="chip active">Все</span>
+      <span class="chip">С баннером</span>
+      <span class="chip">Без баннера</span>
+    </div>
+  `}));
+  const banners = el('div', { class: 'banner-grid' });
+  if (liveBranches.length) {
+    const sortedBr = [...liveBranches].sort((a,b) => (b.banner ? 1 : 0) - (a.banner ? 1 : 0)).slice(0, 24);
+    for (const b of sortedBr) {
+      const regionName = (REGIONS.find(r => r.key === b.regionKey) || {}).name || b.regionKey || '—';
+      const closed = !!b.closeDate;
+      const initial = (b.name || b.marking || '?')[0].toUpperCase();
+      const hasBanner = !!(b.banner && String(b.banner).length > 10);
+      banners.appendChild(el('div', { class: 'banner-card' + (closed ? ' is-closed' : ''), html: `
+        <div class="banner-media">
+          ${hasBanner ? `<img src="${b.banner}" alt="${b.name||'banner'}" onerror="this.style.display='none';this.parentElement.classList.add('no-img');">` : ''}
+          <div class="banner-placeholder">${initial}</div>
+          <div class="banner-overlay"></div>
+          <div class="banner-status">${closed ? '<span class="pill warning">Закрыт</span>' : '<span class="pill success">● Активен</span>'}</div>
+          ${b.marking ? `<div class="banner-marking">${b.marking}</div>` : ''}
+        </div>
+        <div class="banner-body">
+          <div class="banner-title">${b.name || '—'}</div>
+          <div class="banner-meta">
+            <span>${regionName}</span>
+            <span class="dot">·</span>
+            <span>${b.manager || 'без менеджера'}</span>
           </div>
-          <span class="pill ${r.active > 0 ? 'success' : 'muted'}">${r.active} акт.</span>
-        </div>
-        <div style="display:flex; justify-content:space-between; margin-top:14px; font-size:11.5px;">
-          <span style="color:var(--text-dim);">Активные</span>
-          <span style="font-family:JetBrains Mono; font-weight:700;">${fmt(r.active)}</span>
-        </div>
-        <div style="display:flex; justify-content:space-between; margin-top:4px; font-size:11.5px;">
-          <span style="color:var(--text-dim);">Закрыто</span>
-          <span style="font-family:JetBrains Mono; font-weight:700; color:var(--danger);">${fmt(r.closed)}</span>
-        </div>
-        <div style="margin-top:10px;">
-          <div class="mini-bar"><span style="width:${pct}%"></span></div>
+          ${b.phone1 ? `<div class="banner-phone">📞 ${b.phone1}</div>` : ''}
         </div>
       `}));
     }
   } else {
-    grid.appendChild(el('div', { style: 'grid-column: 1 / -1; padding:30px; text-align:center; color:var(--text-muted); font-size:12.5px; background:var(--panel); border-radius:14px; border:1px dashed var(--border);', html: 'Регионы появятся, когда в PVZ будут филиалы.<br><br>Подключитесь к ipost-filiallar.vercel.app, чтобы увидеть данные.' }));
+    banners.appendChild(el('div', { style: 'grid-column: 1 / -1; padding:50px; text-align:center; color:var(--text-muted); font-size:12.5px; background:var(--panel-2); border-radius:14px; border:1px dashed var(--border);', html: 'Филиалы появятся, когда они будут в реестре PVZ.<br><br>Подключение: ipost-filiallar.vercel.app' }));
   }
-  p.appendChild(grid);
+  galleryCard.appendChild(banners);
+  p.appendChild(galleryCard);
   p.appendChild(el('div', { style: 'height:14px;' }));
 
   // Full table — live data from PVZ when available
