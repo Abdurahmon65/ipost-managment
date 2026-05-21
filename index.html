@@ -667,6 +667,81 @@
     margin-top: 6px; margin-bottom: 22px;
   }
 
+  /* ==================== HOME TABS ==================== */
+  .home-tabs {
+    display: flex; gap: 0;
+    padding: 6px; margin-bottom: 22px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    position: relative;
+  }
+  .home-tab {
+    flex: 1; display: inline-flex; align-items: center; justify-content: center;
+    gap: 9px; padding: 12px 18px;
+    border-radius: 10px;
+    font-size: 13px; font-weight: 600;
+    color: var(--text-dim);
+    transition: all 0.25s cubic-bezier(.4,0,.2,1);
+    border: none; background: transparent;
+    cursor: pointer; position: relative;
+    font-family: inherit;
+  }
+  .home-tab:hover { color: var(--text); background: var(--panel-2); }
+  .home-tab.active {
+    color: #fff;
+    background: linear-gradient(135deg, var(--brand) 0%, var(--brand-deep) 100%);
+    box-shadow: 0 6px 20px rgba(0,51,204,0.35), inset 0 1px 0 rgba(255,255,255,0.15);
+  }
+  .home-tab .tab-icon {
+    width: 22px; height: 22px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 7px; flex-shrink: 0;
+    background: var(--accent-soft); color: var(--accent);
+    transition: all 0.2s;
+  }
+  .home-tab .tab-icon svg { width: 14px; height: 14px; }
+  .home-tab.active .tab-icon {
+    background: rgba(255,255,255,0.2); color: #fff;
+  }
+  .home-tab .tab-count {
+    margin-left: 4px;
+    padding: 2px 8px; border-radius: 8px;
+    background: var(--panel-2); color: var(--text-dim);
+    font-size: 10.5px; font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .home-tab.active .tab-count {
+    background: rgba(255,255,255,0.22); color: #fff;
+  }
+  @media (max-width: 760px) {
+    .home-tabs { flex-direction: column; gap: 4px; }
+    .home-tab { justify-content: flex-start; }
+  }
+
+  /* Section header inside tab content */
+  .section-block {
+    margin-bottom: 22px;
+  }
+  .section-title {
+    font-size: 13px; font-weight: 700;
+    color: var(--text);
+    margin: 22px 0 12px;
+    display: flex; align-items: center; gap: 8px;
+    text-transform: uppercase; letter-spacing: 1.2px;
+  }
+  .section-title .dot {
+    width: 4px; height: 16px; border-radius: 2px;
+    background: linear-gradient(180deg, var(--brand-2), var(--brand));
+  }
+  .section-title .count {
+    font-size: 11px; color: var(--text-muted);
+    font-weight: 600; letter-spacing: 0;
+    text-transform: none;
+    margin-left: auto;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
   /* ==================== BANNER GRID (branch cards) ==================== */
   .banner-grid {
     display: grid;
@@ -1670,8 +1745,392 @@ function goTo(page) {
   renderPage(page);
 }
 
-/* ==================== PAGE: HOME ==================== */
+/* ==================== PAGE: HOME (3-tab summary) ==================== */
+// Track active home-summary tab between renders.
+if (!STATE.homeTab) STATE.homeTab = 'courier';   // default = courier
+
+const HOME_TAB_ICONS = {
+  courier:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="6" r="3"/><path d="M5 21v-2a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v2"/></svg>',
+  pvz:       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9.5L12 2l9 7.5V20a2 2 0 0 1-2 2h-4v-7H9v7H5a2 2 0 0 1-2-2V9.5z"/></svg>',
+  logistics: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 17h4V5H2v12h3M14 17h6v-5l-3-3h-3v8zM5.5 20a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM18.5 20a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z"/></svg>',
+};
+
 function renderHome() {
+  const c = $('#content');
+  c.innerHTML = '';
+  c.appendChild(el('div', { class: 'page active', id: 'p-home' }));
+  const p = $('#p-home');
+
+  // Quick counts for tab badges
+  const live = STATE.live;
+  const lk = live && live.kpis;
+  const courierCount = lk ? lk.drivers.total : 0;
+  const pvzCount     = lk ? lk.branches.total : 0;
+  const logCount     = lk ? lk.routes.total   : 0;
+
+  // === Tabs bar ===
+  const tabs = el('div', { class: 'home-tabs' });
+  const TAB_DEFS = [
+    { id: 'courier',   label: 'Сводка курьерской', count: courierCount, icon: 'courier'   },
+    { id: 'pvz',       label: 'Сводка ПВЗ',        count: pvzCount,     icon: 'pvz'       },
+    { id: 'logistics', label: 'Сводка логистики',  count: logCount,     icon: 'logistics' },
+  ];
+  for (const t of TAB_DEFS) {
+    const btn = el('button', {
+      class: 'home-tab' + (STATE.homeTab === t.id ? ' active' : ''),
+      onclick: () => { STATE.homeTab = t.id; renderHome(); },
+      html: `<span class="tab-icon">${HOME_TAB_ICONS[t.icon]}</span><span>${t.label}</span><span class="tab-count">${fmt(t.count)}</span>`,
+    });
+    tabs.appendChild(btn);
+  }
+  p.appendChild(tabs);
+
+  // Render selected tab content
+  switch (STATE.homeTab) {
+    case 'pvz':       return renderHomePVZ(p);
+    case 'logistics': return renderHomeLogistics(p);
+    case 'courier':
+    default:          return renderHomeCourier(p);
+  }
+}
+
+/* ============ TAB: COURIER SUMMARY ============ */
+function renderHomeCourier(p) {
+  const live = STATE.live;
+  const lk = live && live.kpis;
+  const couriers = getAllCouriers();
+  const orders   = getAllOrders();
+
+  const onRoute    = couriers.filter(d => d.bucket === 'on_route').length;
+  const online     = couriers.filter(d => d.bucket === 'online').length;
+  const offline    = couriers.filter(d => d.bucket === 'offline').length;
+  const notWorking = couriers.filter(d => d.bucket === 'not_working').length;
+  const completed  = orders.filter(o => o.status === 'completed').length;
+  const inProgress = orders.filter(o => o.status === 'progress').length;
+  const totalKg    = orders.reduce((s,o) => s + (Number(o.weightKg)||0), 0);
+  const totalSum   = orders.reduce((s,o) => s + (Number(o.sumUZS)||0), 0);
+
+  // KPI tiles — courier focus
+  const kpis = [
+    { l: 'Всего курьеров',      v: fmt(couriers.length), u: '',   icon: 'team',      kind: ''            },
+    { l: 'На маршруте',         v: fmt(onRoute),         u: '',   icon: 'logistics', kind: 'kpi-success' },
+    { l: 'Онлайн (готовы)',     v: fmt(online),          u: '',   icon: 'star',      kind: '' },
+    { l: 'Не работает',         v: fmt(notWorking),      u: '',   icon: 'alert',     kind: 'kpi-danger'  },
+    { l: 'Заказов сегодня',     v: fmt(orders.length),   u: '',   icon: 'package',   kind: 'kpi-purple'  },
+    { l: 'Доставлено',          v: fmt(completed),       u: '',   icon: 'star',      kind: 'kpi-success' },
+    { l: 'Общий вес',           v: fmt(totalKg),         u: 'кг', icon: 'fleet',     kind: 'kpi-warning' },
+    { l: 'Оборот',              v: fmtMoney(totalSum/1e6), u: 'млн UZS', icon: 'money', kind: '' },
+  ];
+  p.appendChild(buildKpiGrid(kpis));
+
+  // Top couriers + recent tracks
+  p.appendChild(el('div', { class: 'section-title', html: `<span class="dot"></span>Лидеры дня <span class="count">${couriers.length} курьеров</span>` }));
+  const row = el('div', { class: 'row r-1-1' });
+
+  const topC = el('div', { class: 'card' });
+  topC.appendChild(el('div', { class: 'card-head', html: `<div><div class="h">ТОП курьеров</div><div class="sub">По количеству доставок сегодня</div></div>
+    <button class="chip" onclick="goTo('courier-status')">Все →</button>
+  `}));
+  if (couriers.length === 0) {
+    topC.appendChild(el('div', { style: 'padding:30px; text-align:center; color:var(--text-muted); font-size:12px;', html: 'Нет курьеров в Dispatch' }));
+  } else {
+    const sorted = [...couriers].sort((a,b) => (b.deliveriesToday||0) - (a.deliveriesToday||0)).slice(0, 6);
+    for (let i = 0; i < sorted.length; i++) {
+      const d = sorted[i];
+      topC.appendChild(el('div', { class: 'list-item', html: `
+        <div class="list-icon" style="background:${i<3 ? 'var(--warning-soft)' : 'var(--accent-soft)'}; color:${i<3 ? 'var(--warning)' : 'var(--accent)'};">${i+1}</div>
+        <div class="list-body">
+          <div class="t1"><span class="status-pulse ${d.bucket === 'on_route' ? 'on-route' : d.bucket === 'online' ? 'online' : d.bucket === 'not_working' ? 'not-working' : 'offline'}"></span>${d.name}</div>
+          <div class="t2">${d.phone || ''} · ★ ${d.rating || '—'} · в срок ${d.onTimePct || 0}%</div>
+        </div>
+        <div class="list-aside"><div class="v">${d.deliveriesToday || 0}</div><span style="font-size:10px; color:var(--text-muted);">сегодня</span></div>
+      `}));
+    }
+  }
+  row.appendChild(topC);
+
+  const recC = el('div', { class: 'card' });
+  recC.appendChild(el('div', { class: 'card-head', html: `<div><div class="h">Последние треки</div><div class="sub">${orders.length} отправлений</div></div>
+    <button class="chip" onclick="goTo('courier-tracks')">Все треки →</button>
+  `}));
+  if (orders.length === 0) {
+    recC.appendChild(el('div', { style: 'padding:30px; text-align:center; color:var(--text-muted); font-size:12px;', html: 'Нет заказов в Dispatch' }));
+  } else {
+    for (const o of orders.slice(0, 8)) {
+      const stat = o.status === 'completed' ? '<span class="pill success">доставлен</span>'
+        : o.status === 'progress' ? '<span class="pill warning">в пути</span>'
+        : o.status === 'issue' ? '<span class="pill danger">проблема</span>'
+        : '<span class="pill muted">ожидает</span>';
+      recC.appendChild(el('div', { class: 'list-item', html: `
+        <div class="list-icon">${ICONS.package}</div>
+        <div class="list-body">
+          <div class="t1" style="font-family:JetBrains Mono;">${o.trackNo || '—'}</div>
+          <div class="t2">${o.client || '—'} · ${o.weightKg || 0} кг · ${o.driverName || '—'}</div>
+        </div>
+        <div class="list-aside">${stat}</div>
+      `}));
+    }
+  }
+  row.appendChild(recC);
+  p.appendChild(row);
+
+  // Status breakdown chart
+  p.appendChild(el('div', { class: 'section-title', html: `<span class="dot"></span>Статусы курьеров` }));
+  const statusGrid = el('div', { class: 'status-grid' });
+  const total = couriers.length || 1;
+  const tiles = [
+    { k: 'on_route',    cls: 'on-route',    label: 'На маршруте',   icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>', n: onRoute },
+    { k: 'online',      cls: 'online',      label: 'Онлайн',         icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9 12l2 2 4-4"/></svg>', n: online },
+    { k: 'offline',     cls: 'offline',     label: 'Оффлайн',        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10"/></svg>', n: offline },
+    { k: 'not_working', cls: 'not-working', label: 'Не работает',    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/></svg>', n: notWorking },
+  ];
+  for (const t of tiles) {
+    statusGrid.appendChild(el('div', {
+      class: 'status-tile ' + t.cls,
+      onclick: () => { COURIER_FILTER.status = t.k; goTo('courier-status'); },
+      html: `
+        <div class="icon-circle">${t.icon}</div>
+        <div class="num">${fmt(t.n)}</div>
+        <div class="label">${t.label}</div>
+        <div class="sub-info">${Math.round(t.n / total * 100)}% от всех</div>
+      `,
+    }));
+  }
+  p.appendChild(statusGrid);
+}
+
+/* ============ TAB: PVZ SUMMARY ============ */
+function renderHomePVZ(p) {
+  const live = STATE.live;
+  const liveBranches = (live && live.branches) || [];
+  const liveRegions  = (live && live.regions)  || [];
+  const total  = (live && live.branchesTotal) || 0;
+  const active = liveBranches.filter(b => !b.closeDate).length;
+  const closed = liveBranches.filter(b => b.closeDate).length;
+  const withBanner = liveBranches.filter(b => b.banner && String(b.banner).length > 10).length;
+  const withCoords = liveBranches.filter(b => typeof b.lat === 'number' && typeof b.lng === 'number').length;
+
+  // KPI tiles — PVZ focus
+  const kpis = [
+    { l: 'Всего ПВЗ',       v: fmt(total),        u: '',  icon: 'branches', kind: ''            },
+    { l: 'Действующие',     v: fmt(active),       u: '',  icon: 'star',     kind: 'kpi-success' },
+    { l: 'Закрыты',         v: fmt(closed),       u: '',  icon: 'alert',    kind: 'kpi-warning' },
+    { l: 'Регионов',        v: fmt(liveRegions.length), u: '',  icon: 'map', kind: 'kpi-purple' },
+    { l: 'С GPS-меткой',    v: fmt(withCoords),   u: '', icon: 'map',      kind: '' },
+    { l: 'С баннером',      v: fmt(withBanner),   u: '', icon: 'reports',  kind: 'kpi-pink' },
+    { l: 'Без баннера',     v: fmt(total - withBanner), u: '', icon: 'alert', kind: 'kpi-warning' },
+    { l: '% активных',      v: total ? Math.round(active/total*100) : 0, u: '%', icon: 'trend',    kind: 'kpi-success' },
+  ];
+  p.appendChild(buildKpiGrid(kpis));
+
+  // Regions list
+  p.appendChild(el('div', { class: 'section-title', html: `<span class="dot"></span>Регионы <span class="count">${liveRegions.length} шт</span>` }));
+  const row1 = el('div', { class: 'row r-2-1' });
+  const regCard = el('div', { class: 'card' });
+  regCard.appendChild(el('div', { class: 'card-head', html: `<div><div class="h">Распределение по регионам</div><div class="sub">Топ-12 по числу филиалов</div></div>`}));
+  const regList = el('div', { class: 'scroll-area', style: 'max-height:400px;' });
+  if (liveRegions.length === 0) {
+    regList.appendChild(el('div', { style: 'padding:30px; text-align:center; color:var(--text-muted); font-size:12px;', html: 'Нет регионов' }));
+  } else {
+    const maxB = Math.max(1, ...liveRegions.map(r => r.branches));
+    for (const r of liveRegions.slice(0, 14)) {
+      const pct = Math.round(r.branches / maxB * 100);
+      regList.appendChild(el('div', { class: 'list-item', html: `
+        <div class="list-icon">${(r.name||'?')[0]}</div>
+        <div class="list-body">
+          <div class="t1">${r.name}</div>
+          <div class="t2">${r.branches} ПВЗ · акт. ${r.active} · закр. ${r.closed}</div>
+          <div style="margin-top:6px;"><div class="mini-bar"><span style="width:${pct}%"></span></div></div>
+        </div>
+        <div class="list-aside"><div class="v">${r.branches}</div><span style="font-size:10px; color:var(--text-muted);">ПВЗ</span></div>
+      `}));
+    }
+  }
+  regCard.appendChild(regList);
+  row1.appendChild(regCard);
+
+  // Map
+  const mapCard = el('div', { class: 'card' });
+  mapCard.appendChild(el('div', { class: 'card-head', html: `<div><div class="h">Карта сети</div><div class="sub">${withCoords} филиалов с GPS</div></div>
+    <button class="chip" onclick="goTo('map')">Полная карта →</button>
+  `}));
+  mapCard.appendChild(el('div', { id: 'director-map', style: 'height:400px;' }));
+  row1.appendChild(mapCard);
+  p.appendChild(row1);
+
+  // Recent banners gallery
+  p.appendChild(el('div', { class: 'section-title', html: `<span class="dot"></span>Баннеры филиалов <span class="count">показано ${Math.min(8, liveBranches.length)} из ${total}</span>` }));
+  const bGrid = el('div', { class: 'banner-grid' });
+  if (liveBranches.length === 0) {
+    bGrid.appendChild(el('div', { style: 'grid-column: 1 / -1; padding:30px; text-align:center; color:var(--text-muted); font-size:12.5px; background:var(--panel); border-radius:14px; border:1px dashed var(--border);', html: 'Нет филиалов' }));
+  } else {
+    const sorted = [...liveBranches].sort((a,b) => (b.banner ? 1 : 0) - (a.banner ? 1 : 0)).slice(0, 8);
+    for (const b of sorted) {
+      const regionName = (REGIONS.find(r => r.key === b.regionKey) || {}).name || b.regionKey || '—';
+      const closedB = !!b.closeDate;
+      const initial = (b.name || b.marking || '?')[0].toUpperCase();
+      const hasBanner = !!(b.banner && String(b.banner).length > 10);
+      bGrid.appendChild(el('div', { class: 'banner-card' + (closedB ? ' is-closed' : ''), html: `
+        <div class="banner-media">
+          ${hasBanner ? `<img src="${b.banner}" onerror="this.style.display='none';this.parentElement.classList.add('no-img');">` : ''}
+          <div class="banner-placeholder">${initial}</div>
+          <div class="banner-overlay"></div>
+          <div class="banner-status">${closedB ? '<span class="pill warning">Закрыт</span>' : '<span class="pill success">● Активен</span>'}</div>
+          ${b.marking ? `<div class="banner-marking">${b.marking}</div>` : ''}
+        </div>
+        <div class="banner-body">
+          <div class="banner-title">${b.name || '—'}</div>
+          <div class="banner-meta"><span>${regionName}</span><span class="dot">·</span><span>${b.manager || 'без менеджера'}</span></div>
+        </div>
+      `}));
+    }
+  }
+  p.appendChild(bGrid);
+
+  setTimeout(() => initMap('director-map', REGIONS), 30);
+}
+
+/* ============ TAB: LOGISTICS SUMMARY ============ */
+function renderHomeLogistics(p) {
+  const live = STATE.live;
+  const lk = live && live.kpis;
+  const routes   = (live && live.dispatch && live.dispatch.routes)   || [];
+  const orders   = (live && live.dispatch && live.dispatch.orders)   || [];
+  const vehicles = (live && live.dispatch && live.dispatch.vehicles) || [];
+  const drivers  = (live && live.dispatch && live.dispatch.drivers)  || [];
+  const customers= (live && live.dispatch && live.dispatch.customers)|| [];
+
+  const completed   = orders.filter(o => o.status === 'completed').length;
+  const inProgress  = orders.filter(o => o.status === 'progress').length;
+  const issues      = orders.filter(o => o.status === 'issue').length;
+  const onRouteV    = vehicles.filter(v => v.status === 'on_route').length;
+  const totalKg     = orders.reduce((s,o) => s + (Number(o.weightKg)||0), 0);
+  const totalSum    = orders.reduce((s,o) => s + (Number(o.sumUZS)||0), 0);
+
+  // KPI tiles — logistics focus
+  const kpis = [
+    { l: 'Маршрутов',          v: fmt(routes.length), u: '', icon: 'logistics',kind: ''            },
+    { l: 'Активные',           v: fmt(routes.filter(r => r.status === 'progress' || r.status === 'ready').length), u: '', icon: 'star', kind: 'kpi-success' },
+    { l: 'Заказов в работе',   v: fmt(orders.length), u: '', icon: 'package',  kind: 'kpi-purple'  },
+    { l: 'Доставлено',         v: fmt(completed),     u: '', icon: 'star',     kind: 'kpi-success' },
+    { l: 'В пути',             v: fmt(inProgress),    u: '', icon: 'logistics',kind: 'kpi-warning' },
+    { l: 'Машин в работе',     v: fmt(onRouteV),      u: '/' + vehicles.length, icon: 'fleet', kind: '' },
+    { l: 'Общий вес',          v: fmt(totalKg),       u: 'кг', icon: 'fleet',  kind: 'kpi-warning' },
+    { l: 'Оборот',             v: fmtMoney(totalSum/1e6), u: 'млн UZS', icon: 'money', kind: 'kpi-success' },
+  ];
+  p.appendChild(buildKpiGrid(kpis));
+
+  // Routes list
+  p.appendChild(el('div', { class: 'section-title', html: `<span class="dot"></span>Активные маршруты <span class="count">${routes.length} шт</span>` }));
+  const routesCard = el('div', { class: 'card' });
+  routesCard.appendChild(el('div', { class: 'card-head', html: `<div><div class="h">Маршруты iPost GO</div><div class="sub">Из Dispatch · live</div></div>
+    <button class="chip" onclick="goTo('logistics')">Все маршруты →</button>
+  `}));
+  if (routes.length === 0) {
+    routesCard.appendChild(el('div', { style: 'padding:30px; text-align:center; color:var(--text-muted); font-size:12px;', html: 'Нет маршрутов в Dispatch' }));
+  } else {
+    const tbl = el('table', { class: 'table' });
+    tbl.innerHTML = `
+      <thead><tr><th>ID</th><th>Маршрут</th><th>Водитель</th><th>Точки</th><th>Прогресс</th><th>Дистанция</th><th>Статус</th></tr></thead>
+      <tbody>
+        ${routes.slice(0, 8).map(r => {
+          const d = drivers.find(x => x.id === r.driverId);
+          const stops = r.metrics?.stops ?? (r.stopIds || []).length;
+          const progress = Number(r.progress) || 0;
+          const stat = r.status === 'progress' ? '<span class="pill success">В работе</span>'
+            : r.status === 'ready' ? '<span class="pill brand">Готов</span>'
+            : r.status === 'done' ? '<span class="pill muted">Завершён</span>'
+            : r.status === 'issue' ? '<span class="pill danger">Проблема</span>'
+            : '<span class="pill warning">' + (r.status||'—') + '</span>';
+          return `<tr>
+            <td style="font-family:JetBrains Mono; font-weight:700;">${r.id}</td>
+            <td><b>${r.name || '—'}</b><div style="font-size:10px; color:var(--text-muted);">${r.date || ''}</div></td>
+            <td>${d ? d.name : '—'}</td>
+            <td style="font-family:JetBrains Mono; font-weight:600;">${stops}</td>
+            <td><div style="display:flex; align-items:center; gap:8px;"><span style="font-family:JetBrains Mono; font-weight:700; min-width:34px;">${progress}%</span><div class="mini-bar ${progress > 80 ? 'success' : ''}" style="width:80px;"><span style="width:${progress}%"></span></div></div></td>
+            <td style="font-family:JetBrains Mono;">${r.metrics?.distance || '—'}</td>
+            <td>${stat}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    `;
+    routesCard.appendChild(tbl);
+  }
+  p.appendChild(routesCard);
+
+  // Vehicles + Orders
+  p.appendChild(el('div', { class: 'section-title', html: `<span class="dot"></span>Автопарк и заказы` }));
+  const row = el('div', { class: 'row r-1-1' });
+
+  // Vehicles
+  const vCard = el('div', { class: 'card' });
+  vCard.appendChild(el('div', { class: 'card-head', html: `<div><div class="h">Транспортные средства</div><div class="sub">${vehicles.length} ТС в системе</div></div>
+    <button class="chip" onclick="goTo('fleet')">Автопарк →</button>
+  `}));
+  if (vehicles.length === 0) {
+    vCard.appendChild(el('div', { style: 'padding:30px; text-align:center; color:var(--text-muted); font-size:12px;', html: 'Нет ТС в Dispatch' }));
+  } else {
+    for (const v of vehicles.slice(0, 6)) {
+      const d = drivers.find(x => x.id === v.driverId);
+      const fuel = Number(v.fuelPct) || 0;
+      const statColor = v.status === 'on_route' ? 'success' : v.status === 'issue' || v.status === 'maintenance' ? 'danger' : 'muted';
+      const statText = v.status === 'on_route' ? 'В пути' : v.status === 'idle' ? 'Простой' : v.status === 'issue' ? 'Проблема' : v.status === 'maintenance' ? 'ТО' : v.status;
+      vCard.appendChild(el('div', { class: 'list-item', html: `
+        <div class="list-icon" style="background:var(--accent-soft); color:var(--accent);">${ICONS.fleet}</div>
+        <div class="list-body">
+          <div class="t1">${v.plate || v.id} <span style="color:var(--text-muted); font-weight:500;">· ${v.model || '—'}</span></div>
+          <div class="t2">${d ? d.name : 'не назначен'} · топливо ${fuel}% · ${fmt(v.mileage || 0)} км</div>
+        </div>
+        <div class="list-aside"><span class="pill ${statColor}">${statText}</span></div>
+      `}));
+    }
+  }
+  row.appendChild(vCard);
+
+  // Recent orders
+  const oCard = el('div', { class: 'card' });
+  oCard.appendChild(el('div', { class: 'card-head', html: `<div><div class="h">Последние заказы</div><div class="sub">${orders.length} в системе</div></div>
+    <button class="chip" onclick="goTo('orders')">Все заказы →</button>
+  `}));
+  if (orders.length === 0) {
+    oCard.appendChild(el('div', { style: 'padding:30px; text-align:center; color:var(--text-muted); font-size:12px;', html: 'Нет заказов в Dispatch' }));
+  } else {
+    for (const o of orders.slice(0, 8)) {
+      const route = routes.find(r => r.id === o.routeId);
+      const drv = route ? drivers.find(d => d.id === route.driverId) : null;
+      const stat = o.status === 'completed' ? '<span class="pill success">доставлен</span>'
+        : o.status === 'progress' ? '<span class="pill warning">в пути</span>'
+        : o.status === 'issue' ? '<span class="pill danger">проблема</span>'
+        : '<span class="pill muted">ожидает</span>';
+      oCard.appendChild(el('div', { class: 'list-item', html: `
+        <div class="list-icon" style="background:var(--purple-soft); color:var(--purple);">${ICONS.package}</div>
+        <div class="list-body">
+          <div class="t1" style="font-family:JetBrains Mono;">${o.trackNo || '—'}</div>
+          <div class="t2">${o.client || '—'} · ${drv ? drv.name : '—'}</div>
+        </div>
+        <div class="list-aside">${stat}</div>
+      `}));
+    }
+  }
+  row.appendChild(oCard);
+  p.appendChild(row);
+}
+
+/* ============ Helper: KPI grid ============ */
+function buildKpiGrid(kpis) {
+  const kg = el('div', { class: 'kpi-grid' });
+  for (const k of kpis) {
+    kg.appendChild(el('div', { class: 'kpi ' + (k.kind || ''), html: `
+      <div class="kpi-head"><div class="kpi-label">${k.l}</div><div class="kpi-icon">${ICONS[k.icon] || ''}</div></div>
+      <div class="kpi-value">${k.v}<span class="unit">${k.u || ''}</span></div>
+      ${k.d ? `<div class="kpi-foot"><span class="delta up">▲ ${k.d}</span></div>` : ''}
+    `}));
+  }
+  return kg;
+}
+
+/* ===== REMOVED: old monolithic renderHome body below ===== */
+function _old_renderHome_removed_keep_for_history() {
   const c = $('#content');
   c.innerHTML = '';
   c.appendChild(el('div', { class: 'page active', id: 'p-home' }));
@@ -4305,27 +4764,14 @@ if (savedTheme) {
 const savedDispatchUrl = localStorage.getItem('ipost-go-dispatch-url');
 if (savedDispatchUrl) STATE.sources.dispatch.url = savedDispatchUrl;
 
-// Restore token if present
-const savedToken = localStorage.getItem('ipost-go-director-token');
-if (savedToken) {
-  STATE.token = savedToken;
-  IPostAPI.me().then(u => {
-    STATE.user = u;
-    $('#gate').style.display = 'none';
-    $('#app').style.display = 'grid';
-    bootApp();
-  }).catch(() => {
-    // token expired
-    STATE.token = null;
-    localStorage.removeItem('ipost-go-director-token');
-  });
-} else if (localStorage.getItem('ipost-go-director-auth') === '1') {
-  // Demo-mode resume
-  STATE.user = { fullName: 'Директор iPost GO', role: 'manager', login: 'director' };
-  $('#gate').style.display = 'none';
-  $('#app').style.display = 'grid';
-  bootApp();
-}
+// IMPORTANT: NO AUTO-LOGIN — always show the gate first.
+// Clear any previously persisted credentials so a fresh visit requires explicit login.
+localStorage.removeItem('ipost-go-director-token');
+localStorage.removeItem('ipost-go-director-auth');
+STATE.token = null;
+STATE.user  = null;
+$('#gate').style.display = 'flex';
+$('#app').style.display  = 'none';
 
 // Allow Enter key on login
 document.addEventListener('keydown', (e) => {
