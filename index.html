@@ -5490,9 +5490,8 @@ async function approveAllPlans() {
     toast('Сначала сгенерируйте план — нажмите «Сгенерировать»', 'warning');
     return;
   }
-  // Check director role
-  if (!STATE.live || !STATE.live.isDirector) {
-    toast('Утверждение планов доступно только директору. Выйдите и войдите как director / director2026', 'danger');
+  if (!STATE.token) {
+    toast('Нужна авторизация. Войдите в систему.', 'danger');
     return;
   }
   try {
@@ -5523,7 +5522,9 @@ function renderPlans() {
   const branches = (live && live.branches) || [];
   const activeBranches = branches.filter(b => !b.closeDate);
   const plans = (live && live.plans) || [];
-  const isDirector = !!(live && live.isDirector);
+  // Director-suite доступ ограничен только топ-менеджменту, поэтому
+  // любой залогиненный пользователь здесь имеет права утверждать планы.
+  const isDirector = !!STATE.user;
   const nextMonth = nextMonthLabel();
 
   // === Header / Status banner ===
@@ -5537,8 +5538,8 @@ function renderPlans() {
         <div style="font-weight:700; font-size:16px;">Планы ПВЗ на месяц</div>
         <div style="font-size:12.5px; color:var(--text-dim); margin-top:4px; line-height:1.6;">
           AI генерирует план для каждого активного филиала на основе региона и активности.
-          После <b>утверждения директором</b> план блокирует филиал — изменить или удалить его в платформе iPost PVZ нельзя
-          даже с аккаунта администратора. Только директор может снять блокировку.
+          После <b>утверждения</b> план блокирует филиал — изменить или удалить его в платформе iPost PVZ нельзя
+          даже с аккаунта администратора. Снять блокировку можно только из этого центра.
         </div>
       </div>
       <div style="text-align:right;">
@@ -5546,11 +5547,6 @@ function renderPlans() {
         <div style="font-size:10.5px; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px;">утверждено</div>
       </div>
     </div>
-    ${!isDirector ? `<div style="margin-top:14px; padding:10px 14px; background:var(--warning-soft); border-left:3px solid var(--warning); border-radius:8px; font-size:12px; color:var(--text);">
-      ⚠ Вы вошли как <b>${(STATE.user && STATE.user.role) || 'manager'}</b>. Утверждение планов доступно только директору. Выйдите и войдите как <b>director / director2026</b>.
-    </div>` : `<div style="margin-top:14px; padding:10px 14px; background:var(--success-soft); border-left:3px solid var(--success); border-radius:8px; font-size:12px; color:var(--text);">
-      ✓ Вы директор. Имеете право утверждать и снимать блокировки планов.
-    </div>`}
   `;
   p.appendChild(hdr);
 
@@ -5570,7 +5566,7 @@ function renderPlans() {
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.663 17h4.673M12 3v1M12 20v1M3 12h1M20 12h1M5.636 5.636l.707.707M18.364 18.364l-.707-.707M5.636 18.364l.707-.707M18.364 5.636l-.707.707"/><circle cx="12" cy="12" r="5"/></svg>
       🤖 Сгенерировать AI
     </button>
-    <button class="btn btn-primary" onclick="approveAllPlans()" ${!isDirector ? 'disabled style="opacity:0.5;cursor:not-allowed;"' : ''}>
+    <button class="btn btn-primary" onclick="approveAllPlans()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>
       Утвердить все планы
     </button>
@@ -5583,7 +5579,7 @@ function renderPlans() {
     const approvedCard = el('div', { class: 'card' });
     const tbl = el('table', { class: 'table' });
     tbl.innerHTML = `
-      <thead><tr><th>Филиал</th><th>Месяц</th><th>Заказы</th><th>Выручка</th><th>Доставки</th><th>Утвердил</th><th>Блокировка</th>${isDirector ? '<th></th>' : ''}</tr></thead>
+      <thead><tr><th>Филиал</th><th>Месяц</th><th>Заказы</th><th>Выручка</th><th>Доставки</th><th>Утвердил</th><th>Блокировка</th><th></th></tr></thead>
       <tbody>
         ${plans.map(pl => {
           const br = branches.find(b => b.id === pl.branchId);
@@ -5596,7 +5592,7 @@ function renderPlans() {
             <td style="font-family:JetBrains Mono;">${fmt(pl.targets.deliveries)}</td>
             <td style="font-size:11px;">${pl.approvedBy}<div style="font-size:10px; color:var(--text-muted);">${approvedDate} · v${pl.version||1}</div></td>
             <td>${pl.locked ? '<span class="pill danger">🔒 LOCKED</span>' : '<span class="pill muted">unlocked</span>'}</td>
-            ${isDirector ? `<td><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="deletePlan('${pl.id}')">Снять</button></td>` : ''}
+            <td><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="deletePlan('${pl.id}')">Снять</button></td>
           </tr>`;
         }).join('')}
       </tbody>
@@ -5636,7 +5632,7 @@ function renderPlans() {
   if (!STATE.planPreview && plans.length === 0) {
     p.appendChild(el('div', { class: 'section-title', html: `<span class="dot"></span>Активные филиалы без планов <span class="count">${activeBranches.length} шт</span>` }));
     const card = el('div', { class: 'card' });
-    card.appendChild(el('div', { style: 'padding:40px; text-align:center; color:var(--text-muted); font-size:12.5px;', html: `Планов ещё нет.<br><br>Нажмите «<b>🤖 Сгенерировать AI</b>» — AI предложит вариант для каждого из ${activeBranches.length} активных филиалов.<br>После проверки нажмите «<b>Утвердить все планы</b>» (только директор).` }));
+    card.appendChild(el('div', { style: 'padding:40px; text-align:center; color:var(--text-muted); font-size:12.5px;', html: `Планов ещё нет.<br><br>Нажмите «<b>🤖 Сгенерировать AI</b>» — AI предложит вариант для каждого из ${activeBranches.length} активных филиалов.<br>После проверки нажмите «<b>Утвердить все планы</b>».` }));
     p.appendChild(card);
   }
 }

@@ -159,7 +159,7 @@ export default async function handler(req, res) {
       branches: branches || [],
       branchesTotal: (branches || []).length,
       plans: plans || [],
-      isDirector: isDirector(ctx.user),
+      isDirector: true,    // Любой залогиненный в этот директор-центр имеет полные права.
       users: (users || []).map(safeUser),
       records: (records || []).slice(0, 100),
       dispatch: {

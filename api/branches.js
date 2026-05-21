@@ -139,17 +139,18 @@ export default async function handler(req, res) {
       const idx = branches.findIndex(b => b.id === id);
       if (idx === -1) return res.status(404).json({ error: 'not_found' });
 
-      // PLAN LOCK CHECK — director can override, manager/operator cannot.
+      // PLAN LOCK CHECK — locked plans block all edits on this platform.
+      // Plans can only be unlocked from the director suite (ipost-managment).
       const lockedPlan = await getLockedPlanForBranch(id);
-      if (lockedPlan && !isDirector(me)) {
+      if (lockedPlan) {
         return res.status(423).json({
           error: 'plan_locked',
-          message: 'Филиал заблокирован планом директора на месяц ' + lockedPlan.month + '. Изменения возможны только из директорского аккаунта.',
+          message: 'Филиал заблокирован планом на месяц ' + lockedPlan.month + '. Снять блокировку можно только из директорского центра (ipost-managment).',
           plan: { id: lockedPlan.id, month: lockedPlan.month, approvedBy: lockedPlan.approvedBy, approvedAt: lockedPlan.approvedAt },
         });
       }
 
-      // Status toggle: manager only (director also allowed)
+      // Status toggle: manager only
       if (action === 'toggleStatus') {
         if (!isManager && !isDirector(me)) {
           return res.status(403).json({ error: 'forbidden', message: 'manager_role_required' });
@@ -205,10 +206,10 @@ export default async function handler(req, res) {
 
       // PLAN LOCK CHECK
       const lockedPlan = await getLockedPlanForBranch(id);
-      if (lockedPlan && !isDirector(me)) {
+      if (lockedPlan) {
         return res.status(423).json({
           error: 'plan_locked',
-          message: 'Филиал заблокирован планом директора на месяц ' + lockedPlan.month + '. Удаление возможно только из директорского аккаунта.',
+          message: 'Филиал заблокирован планом на месяц ' + lockedPlan.month + '. Снять блокировку можно только из директорского центра (ipost-managment).',
           plan: { id: lockedPlan.id, month: lockedPlan.month, approvedBy: lockedPlan.approvedBy },
         });
       }
