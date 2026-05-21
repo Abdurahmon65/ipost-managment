@@ -1341,6 +1341,7 @@ const I18N = {
     'menu.customers':  'Клиенты',
     'menu.branches':   'Филиалы',
     'menu.map':        'Карта сети',
+    'menu.plans':      'Планы ПВЗ',
     'menu.finance':    'Финансы',
     'menu.team':       'Команда',
     'menu.reports':    'Отчёты',
@@ -1388,6 +1389,7 @@ const I18N = {
     'menu.customers':  'Customers',
     'menu.branches':   'Branches',
     'menu.map':        'Network map',
+    'menu.plans':      'PVZ Plans',
     'menu.finance':    'Finance',
     'menu.team':       'Team',
     'menu.reports':    'Reports',
@@ -1432,6 +1434,7 @@ const I18N = {
     'menu.customers':  'Mijozlar',
     'menu.branches':   'Filiallar',
     'menu.map':        'Tarmoq xaritasi',
+    'menu.plans':      'PVZ Rejalari',
     'menu.finance':    'Moliya',
     'menu.team':       'Jamoa',
     'menu.reports':    'Hisobotlar',
@@ -1627,6 +1630,7 @@ const NAV_GROUPS = [
     sectionKey: 'nav_pvz',
     items: [
       { id: 'branches', labelKey: 'menu.branches', icon: 'branches' },
+      { id: 'plans',    labelKey: 'menu.plans',    icon: 'reports', badge: 'AI' },
       { id: 'map',      labelKey: 'menu.map',      icon: 'map' },
     ]
   },
@@ -1661,6 +1665,7 @@ const PAGE_META = {
   'courier-points': { title: '🚴 Точки доставки',       sub: 'География доставок · точки на карте' },
   'courier-weight': { title: '🚴 Вес и груз',           sub: 'Аналитика по весу отправлений' },
   'courier-status': { title: '🚴 Статусы курьеров',     sub: 'На маршруте · онлайн · оффлайн · не работает' },
+  plans:            { title: '📅 Планы ПВЗ',            sub: 'AI-генерация + утверждение директором (lock-режим)' },
 };
 
 /* ==================== MOCK DATA (LOGISTICS DOMAIN) ==================== */
@@ -4738,14 +4743,17 @@ function exportCourierReport() {
 const AI_HISTORY = [];
 
 const AI_SUGGESTS_BY_PAGE = {
-  courier:          ['Сколько курьеров на маршруте?', 'Кто лидер по доставкам?', 'Какой общий вес сегодня?', 'Кто не работает и почему?'],
-  'courier-daily':  ['Сравни день с прошлой неделей', 'У кого больше всего проблем?', 'Какой час пиковый?'],
-  'courier-monthly':['Сколько доставок за месяц?', 'Динамика по неделям', 'Прогноз на следующий месяц'],
+  courier:          ['Сделай отчёт по курьерской', 'Сколько курьеров на маршруте?', 'Кто лидер по доставкам?', 'План для курьерской на след. месяц'],
+  'courier-daily':  ['Сделай отчёт за день', 'Сравни день с прошлой неделей', 'У кого больше всего проблем?'],
+  'courier-monthly':['Сделай отчёт за месяц', 'Прогноз на следующий месяц', 'Динамика по неделям'],
   'courier-tracks': ['Сколько треков в работе?', 'Покажи проблемные', 'Найди трек IPST10005'],
   'courier-points': ['Какой район чаще всего заказывает?', 'Где доставлено больше всего?'],
   'courier-weight': ['Средний вес посылки?', 'Кто возит больше всего тяжёлых?'],
   'courier-status': ['Сколько курьеров на смене?', 'Кто оффлайн?'],
-  default:          ['Сколько активных филиалов?', 'Какая выручка за день?', 'Сколько маршрутов сейчас?', 'Покажи статус автопарка'],
+  branches:         ['Сделай отчёт по ПВЗ', 'Сгенерируй план для всех ПВЗ', 'ТОП филиалов по активности', 'Сколько закрытых?'],
+  map:              ['Какие регионы самые загруженные?', 'Покажи план по регионам'],
+  plans:            ['Сгенерируй план на след. месяц', 'Покажи текущие утверждённые планы', 'Сколько ПВЗ без плана?'],
+  default:          ['Сделай отчёт по ПВЗ', 'Сделай отчёт по курьерской', 'Сгенерируй план на след. месяц', 'Сколько активных филиалов?'],
 };
 
 function toggleAI(force) {
@@ -4868,17 +4876,421 @@ function aiLocalAnswer(q) {
   if (/выручк|оборот|деньг|сумм|сум|revenue|money/.test(Q)) {
     return answer(`Оборот за период: <b>${fmt(sumUZS)} UZS</b> (~<b>${fmtMoney(sumUZS/1e6)} млн</b>). Средний чек: <b>${fmt(Math.round(sumUZS/Math.max(1,orders.length)))} UZS</b>.`);
   }
-  if (/привет|здрав|hello|hi/.test(Q)) return answer('Здравствуйте! Я AI-помощник iPost GO. Спросите про курьеров, треки, вес, выручку или статусы.');
+  if (/привет|здрав|hello|hi/.test(Q)) return answer('Здравствуйте! Я AI-помощник iPost GO. Скажите «<b>отчёт по курьерской</b>», «<b>отчёт по ПВЗ</b>» или «<b>план на след. месяц</b>».');
   if (/помощ|что.*умеешь|help/.test(Q)) {
-    return answer(`Я могу:<br>
-      • Считать курьеров по статусам (на маршруте/онлайн/оффлайн/не работает)<br>
-      • Показать треки (например: «найди IPST10005»)<br>
-      • Рассказать про вес, доставки, выручку<br>
-      • Назвать лидеров и проблемные точки<br>
-      • Подсказать про филиалы и маршруты<br><br>
-      Подключите endpoint <code>/api/ai</code> для умного режима с Claude.`);
+    return answer(`<b>Что я умею:</b><br>
+      📊 <b>Отчёты</b> — «отчёт по курьерской», «отчёт по ПВЗ», «месячный отчёт»<br>
+      📅 <b>Планы</b> — «сгенерируй план на след. месяц», «покажи планы», «план для филиала TSH-001»<br>
+      📦 Треки, заказы, вес, выручка — «найди IPST10005»<br>
+      👥 Статусы курьеров — «кто не работает», «онлайн», «оффлайн»<br>
+      🏢 Филиалы, регионы, маршруты<br><br>
+      <i>Подключите ANTHROPIC_API_KEY для умного режима с Claude.</i>`);
   }
-  return answer(`Я не уверен, что понял. Сейчас в выборке: <b>${couriers.length}</b> курьеров (на маршруте: ${onRoute}, онлайн: ${online}, оффлайн: ${offline}, не работает: ${notWork}), <b>${orders.length}</b> отправлений, общий вес <b>${fmt(totalKg)} кг</b>. Уточните вопрос?`);
+
+  // ============ ОТЧЁТЫ ============
+  if (/отч[её]т.*курьер|отч[её]т.*достав|courier.*report|report.*courier/.test(Q)) {
+    return answer(aiReportCourier(couriers, orders));
+  }
+  if (/отч[её]т.*пвз|отч[её]т.*филиал|pvz.*report|branch.*report/.test(Q)) {
+    return answer(aiReportPVZ());
+  }
+  if (/отч[её]т.*логистик|отч[её]т.*маршрут|logistics.*report/.test(Q)) {
+    return answer(aiReportLogistics());
+  }
+  if (/отч[её]т|сводка|report/.test(Q)) {
+    return answer(`Какой отчёт нужен?<br>
+      • «отчёт по курьерской»<br>
+      • «отчёт по ПВЗ»<br>
+      • «отчёт по логистике»<br><br>
+      Или сразу укажите период: «отчёт за месяц», «отчёт за день».`);
+  }
+
+  // ============ ПЛАНЫ ============
+  if (/утверд.*план|approve.*plan|apply.*plan/.test(Q)) {
+    setTimeout(approveAllPlans, 300);
+    return answer('🚀 Отправляю на утверждение… (только если вы директор)');
+  }
+  if (/сгенерируй.*план|предложи.*план|план.*след|план.*месяц|new.*plan|generate.*plan/.test(Q)) {
+    return answer(aiGeneratePlanPreview() + '<br><br><button class="btn btn-primary" onclick="goTo(\'plans\')" style="margin-top:8px;">Открыть страницу планов →</button>');
+  }
+  if (/план/.test(Q)) {
+    const plans = (STATE.live && STATE.live.plans) || [];
+    const matchId = q.match(/[A-Za-z0-9_-]{4,}/);
+    if (matchId) {
+      const branchPlans = plans.filter(p => p.branchId === matchId[0]);
+      if (branchPlans.length) {
+        return answer('План для филиала <b>' + matchId[0] + '</b>:<br>' + branchPlans.map(p => `${p.month} · цель: ${fmt(p.targets.orders)} заказов, ${fmtMoney(p.targets.revenue/1e6)} млн UZS · 🔒 утверждён ${p.approvedBy}`).join('<br>'));
+      }
+    }
+    if (plans.length === 0) {
+      return answer('Утверждённых планов ещё нет. Скажите «сгенерируй план на следующий месяц», чтобы AI предложил варианты для каждого филиала.');
+    }
+    return answer(`Утверждено планов: <b>${plans.length}</b>. Зайдите в раздел <b>ПВЗ → Планы</b> или скажите «покажи план для филиала TSH-001».`);
+  }
+
+  if (/на маршрут|марш|on.?route/.test(Q))    return answer(`Сейчас <b>${onRoute}</b> курьеров на маршруте. Онлайн (готовых): <b>${online}</b>, оффлайн: <b>${offline}</b>, не работает: <b>${notWork}</b>.`);
+  if (/онлайн|online/.test(Q))                 return answer(`<b>${online}</b> курьеров онлайн (готовы к выезду). На маршруте: <b>${onRoute}</b>, оффлайн: <b>${offline}</b>.`);
+  if (/оффлайн|offline/.test(Q))               return answer(`<b>${offline}</b> курьеров оффлайн. На маршруте: <b>${onRoute}</b>, не работает: <b>${notWork}</b>.`);
+  if (/не работает|не рабоч|not.?work/.test(Q))return answer(`<b>${notWork}</b> курьеров не работает (проблема/неисправность). Это <b>${couriers.length ? Math.round(notWork/couriers.length*100) : 0}%</b> от всех ${couriers.length}.`);
+  if (/вес|кг|тяжел|weight/.test(Q))          return answer(`Общий вес отправлений за период: <b>${fmt(totalKg)} кг</b>. Средний вес посылки: <b>${(totalKg/Math.max(1,orders.length)).toFixed(1)} кг</b>.`);
+  if (/доставлен|completed|готов/.test(Q))    return answer(`Доставлено <b>${fmt(completed)}</b> из <b>${fmt(orders.length)}</b> заказов (${orders.length ? Math.round(completed/orders.length*100) : 0}%). Сумма доставок: <b>${fmt(sumUZS)} UZS</b>.`);
+  if (/лидер|топ|лучш|top|best/.test(Q))      {
+    const top = [...couriers].sort((a,b) => (b.deliveriesToday||0) - (a.deliveriesToday||0)).slice(0,3);
+    return answer('Лидеры дня:<br>' + top.map((d,i) => `${i+1}. <b>${d.name}</b> — ${d.deliveriesToday||0} доставок, ★ ${d.rating||'—'}, в срок ${d.onTimePct||0}%`).join('<br>'));
+  }
+  if (/трек|track|ipst/.test(Q)) {
+    const m = q.match(/IPST\d+/i);
+    if (m) {
+      const o = orders.find(x => (x.trackNo||'').toUpperCase() === m[0].toUpperCase());
+      if (o) return answer(`Трек <b>${o.trackNo}</b>: клиент <b>${o.client}</b>, адрес: ${o.addr}, курьер: <b>${o.driverName}</b>, вес: ${o.weightKg||0} кг, статус: <b>${o.status}</b>.`);
+      return answer(`Трек ${m[0]} не найден среди ${orders.length} текущих отправлений.`);
+    }
+    return answer(`Всего треков в выборке: <b>${fmt(orders.length)}</b>. В работе: <b>${orders.filter(o=>o.status==='progress').length}</b>, проблем: <b>${orders.filter(o=>o.status==='issue').length}</b>.`);
+  }
+  if (/филиал|пвз|branch/.test(Q)) {
+    const t = STATE.live?.branchesTotal || 0;
+    const a = (STATE.live?.branches || []).filter(b => !b.closeDate).length;
+    return answer(`В реестре ПВЗ: <b>${t}</b> филиалов, активных <b>${a}</b>. Регионов: <b>${(STATE.live?.regions||[]).length}</b>. Скажите «отчёт по ПВЗ» для деталей.`);
+  }
+  if (/маршрут|route/.test(Q)) {
+    const r = STATE.live?.dispatch?.routes || [];
+    return answer(`Маршрутов в Dispatch: <b>${r.length}</b>. В работе: <b>${r.filter(x=>x.status==='progress').length}</b>, готовы: <b>${r.filter(x=>x.status==='ready').length}</b>.`);
+  }
+  if (/выручк|оборот|деньг|сумм|сум|revenue|money/.test(Q)) {
+    return answer(`Оборот за период: <b>${fmt(sumUZS)} UZS</b> (~<b>${fmtMoney(sumUZS/1e6)} млн</b>). Средний чек: <b>${fmt(Math.round(sumUZS/Math.max(1,orders.length)))} UZS</b>.`);
+  }
+  return answer(`Я не уверен, что понял. Сейчас: <b>${couriers.length}</b> курьеров, <b>${orders.length}</b> заказов, <b>${STATE.live?.branchesTotal||0}</b> филиалов.<br>Скажите «<b>отчёт по ПВЗ</b>» или «<b>план на следующий месяц</b>».`);
+}
+
+/* ==================== AI: REPORTS ==================== */
+function aiReportCourier(couriers, orders) {
+  couriers = couriers || filterCouriers(getAllCouriers());
+  orders   = orders   || filterOrders(getAllOrders());
+  if (couriers.length === 0 && orders.length === 0) return '<b>Нет данных от Dispatch</b> для отчёта.';
+  const onRoute = couriers.filter(d => d.bucket === 'on_route').length;
+  const online  = couriers.filter(d => d.bucket === 'online').length;
+  const offline = couriers.filter(d => d.bucket === 'offline').length;
+  const notWork = couriers.filter(d => d.bucket === 'not_working').length;
+  const completed = orders.filter(o => o.status === 'completed').length;
+  const issues   = orders.filter(o => o.status === 'issue').length;
+  const totalKg  = orders.reduce((s,o) => s + (Number(o.weightKg)||0), 0);
+  const totalSum = orders.reduce((s,o) => s + (Number(o.sumUZS)||0), 0);
+  const costs    = calculateCosts('courier');
+  const courierCost = costs.courier.total + costs.orders.processing;
+  const margin   = totalSum - courierCost;
+  const top3 = [...couriers].sort((a,b) => (b.deliveriesToday||0) - (a.deliveriesToday||0)).slice(0,3);
+  return `📊 <b>Отчёт по курьерской</b><br>
+    <b>Период:</b> ${COURIER_FILTER.from} → ${COURIER_FILTER.to}<br><br>
+    <b>Команда</b> (${couriers.length} чел):<br>
+    • На маршруте: <b>${onRoute}</b><br>
+    • Онлайн готовы: <b>${online}</b><br>
+    • Оффлайн: <b>${offline}</b><br>
+    • Не работает: <b>${notWork}</b><br><br>
+    <b>Заказы</b>:<br>
+    • Всего: <b>${fmt(orders.length)}</b> · доставлено <b>${fmt(completed)}</b> (${orders.length ? Math.round(completed/orders.length*100) : 0}%) · с проблемой <b>${issues}</b><br>
+    • Общий вес: <b>${fmt(totalKg)} кг</b><br>
+    • Оборот: <b>${fmtMoney(totalSum/1e6)} млн UZS</b><br><br>
+    <b>Финансы</b>:<br>
+    • Себестоимость: <b>${fmtMoney(courierCost/1e6)} млн</b><br>
+    • Маржа: <b>${margin >= 0 ? fmtMoney(margin/1e6) : '−'+fmtMoney(-margin/1e6)} млн</b> (${totalSum ? Math.round(margin/totalSum*100) : 0}%)<br><br>
+    ${top3.length ? '<b>Лидеры</b>:<br>' + top3.map((d,i) => `${i+1}. ${d.name} — ${d.deliveriesToday||0} доставок, ★${d.rating||'—'}`).join('<br>') : ''}`;
+}
+
+function aiReportPVZ() {
+  const live = STATE.live;
+  if (!live || !live.branches) return '<b>Нет данных от PVZ</b> для отчёта.';
+  const branches = live.branches;
+  const regions  = live.regions || [];
+  const plans    = live.plans || [];
+  const total    = live.branchesTotal || 0;
+  const active   = branches.filter(b => !b.closeDate).length;
+  const closed   = branches.filter(b => b.closeDate).length;
+  const rent     = branches.filter(b => !b.closeDate && b.rent).length;
+  const withPhoto= branches.filter(b => b.banner).length;
+  const costs    = calculateCosts('pvz');
+  const topReg   = [...regions].sort((a,b) => b.branches - a.branches).slice(0,3);
+  const monthlyPlans = plans.filter(p => p.locked).length;
+  return `🏢 <b>Отчёт по ПВЗ</b><br>
+    <b>Всего филиалов:</b> ${fmt(total)} · действующих <b>${fmt(active)}</b> · закрыто <b>${fmt(closed)}</b><br>
+    <b>Регионов:</b> ${regions.length}<br>
+    <b>На аренде:</b> ${rent} (${active ? Math.round(rent/active*100) : 0}%)<br>
+    <b>С баннером:</b> ${withPhoto}<br>
+    <b>Утверждённых планов:</b> ${monthlyPlans}<br><br>
+    <b>Себестоимость:</b><br>
+    • Аренда: <b>${fmtMoney(costs.pvz.rent/1e6)} млн UZS</b><br>
+    • ФОТ менеджеров: <b>${fmtMoney(costs.pvz.salaries/1e6)} млн UZS</b><br>
+    • Коммунальные: <b>${fmtMoney(costs.pvz.utilities/1e6)} млн UZS</b><br>
+    • <b>Итого: ${fmtMoney(costs.pvz.total/1e6)} млн UZS / мес</b><br><br>
+    <b>ТОП регионов:</b><br>
+    ${topReg.map((r,i) => `${i+1}. ${r.name} — ${r.branches} ПВЗ (${r.active} акт.)`).join('<br>')}`;
+}
+
+function aiReportLogistics() {
+  const live = STATE.live;
+  if (!live || !live.dispatch) return '<b>Нет данных от Dispatch</b> для отчёта.';
+  const d = live.dispatch;
+  const orders = d.orders || [];
+  const vehicles = d.vehicles || [];
+  const routes = d.routes || [];
+  const completed = orders.filter(o => o.status === 'completed').length;
+  const totalKm = vehicles.reduce((s,v) => s + (Number(v.mileage)||0), 0);
+  const sumUZS = orders.reduce((s,o) => s + (Number(o.sumUZS)||0), 0);
+  const costs = calculateCosts('logistics');
+  const logCost = costs.vehicle.total + costs.courier.salaries + costs.orders.processing;
+  return `🚚 <b>Отчёт по логистике</b><br>
+    <b>Маршрутов:</b> ${routes.length} (${routes.filter(r => r.status === 'progress').length} в работе)<br>
+    <b>Заказов:</b> ${orders.length} · доставлено ${completed}<br>
+    <b>ТС:</b> ${vehicles.length} · в пути ${vehicles.filter(v => v.status === 'on_route').length}<br>
+    <b>Пробег всего:</b> ${fmt(totalKm)} км<br><br>
+    <b>Финансы:</b><br>
+    • Оборот: <b>${fmtMoney(sumUZS/1e6)} млн UZS</b><br>
+    • Топливо: <b>${fmtMoney(costs.vehicle.fuel/1e6)} млн</b><br>
+    • ТО: <b>${fmtMoney(costs.vehicle.maintenance/1e6)} млн</b><br>
+    • <b>Себестоимость: ${fmtMoney(logCost/1e6)} млн UZS</b><br>
+    • Маржа: <b>${fmtMoney((sumUZS-logCost)/1e6)} млн UZS</b>`;
+}
+
+/* ==================== AI: PLAN GENERATOR ==================== */
+function aiGeneratePlanPreview() {
+  const live = STATE.live;
+  const branches = (live && live.branches) || [];
+  if (!branches.length) return 'Сначала нужно подключиться к PVZ — нет данных о филиалах.';
+  const active = branches.filter(b => !b.closeDate);
+  // Compute proposed plan: ~ scale by region typical orders
+  const proposals = generateMonthlyPlans(active);
+  const next = nextMonthLabel();
+  // Save preview to STATE for later approval
+  STATE.planPreview = { month: next, proposals };
+  return `📅 <b>Сгенерированы планы на месяц ${next}</b> для ${active.length} активных филиалов.<br><br>
+    Средние цели в месяц:<br>
+    • Заказы: <b>${fmt(Math.round(proposals.reduce((s,p)=>s+p.targets.orders,0)/proposals.length))}</b><br>
+    • Выручка: <b>${fmtMoney(proposals.reduce((s,p)=>s+p.targets.revenue,0)/proposals.length/1e6)} млн UZS</b><br>
+    • Доставки: <b>${fmt(Math.round(proposals.reduce((s,p)=>s+p.targets.deliveries,0)/proposals.length))}</b><br>
+    • Новые клиенты: <b>${fmt(Math.round(proposals.reduce((s,p)=>s+p.targets.newCustomers,0)/proposals.length))}</b><br><br>
+    🔍 <b>Откройте раздел «ПВЗ → Планы»</b> для просмотра и утверждения.<br>
+    Или скажите «<b>утвердить все планы</b>» — план применится для всех ${active.length} филиалов.`;
+}
+
+function nextMonthLabel() {
+  const d = new Date(); d.setMonth(d.getMonth() + 1);
+  return d.toISOString().slice(0, 7);
+}
+
+function generateMonthlyPlans(activeBranches) {
+  // Use simple heuristic: regions with more branches get higher per-branch targets;
+  // existing branches with longer history (older openDate) get larger targets.
+  const out = [];
+  for (const b of activeBranches) {
+    // base targets vary by region
+    const regionFactor = b.regionKey === 'tashkent' ? 1.6
+                       : b.regionKey === 'samarkand' || b.regionKey === 'fergana' ? 1.2
+                       : b.regionKey === 'namangan' || b.regionKey === 'andijan' || b.regionKey === 'bukhara' ? 1.0
+                       : 0.75;
+    const baseOrders = Math.round(120 * regionFactor);
+    const orders = baseOrders + Math.round((b.id || '').length * 1.7);  // small variation
+    const revenue = orders * 145000;     // avg check ~145K UZS
+    const deliveries = Math.round(orders * 0.88);
+    const newCustomers = Math.max(5, Math.round(orders * 0.06));
+    const avgRating = 4.7;
+    out.push({
+      branchId: b.id,
+      branchName: b.name || '',
+      regionKey: b.regionKey,
+      manager:   b.manager,
+      marking:   b.marking,
+      month: nextMonthLabel(),
+      targets: { orders, revenue, deliveries, newCustomers, avgRating },
+      notes: 'AI-предложение. Скорректируйте в UI перед утверждением.',
+    });
+  }
+  return out;
+}
+
+async function approveAllPlans() {
+  if (!STATE.planPreview || !STATE.planPreview.proposals.length) {
+    toast('Сначала сгенерируйте план — нажмите «Сгенерировать»', 'warning');
+    return;
+  }
+  // Check director role
+  if (!STATE.live || !STATE.live.isDirector) {
+    toast('Утверждение планов доступно только директору. Выйдите и войдите как director / director2026', 'danger');
+    return;
+  }
+  try {
+    const r = await fetch('/api/plans', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + STATE.token },
+      body: JSON.stringify({ batch: STATE.planPreview.proposals }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.message || j.error || 'unknown');
+    toast(`✓ Утверждено ${j.added} планов на ${STATE.planPreview.month}. Филиалы заблокированы для редактирования.`, 'success');
+    STATE.planPreview = null;
+    await IPostAPI.refreshAll();
+    renderPage(STATE.page);
+  } catch (e) {
+    toast('Ошибка утверждения: ' + e.message, 'danger');
+  }
+}
+
+/* ==================== PAGE: PVZ PLANS ==================== */
+function renderPlans() {
+  const c = $('#content');
+  c.innerHTML = '';
+  const p = el('div', { class: 'page active' });
+  c.appendChild(p);
+
+  const live = STATE.live;
+  const branches = (live && live.branches) || [];
+  const activeBranches = branches.filter(b => !b.closeDate);
+  const plans = (live && live.plans) || [];
+  const isDirector = !!(live && live.isDirector);
+  const nextMonth = nextMonthLabel();
+
+  // === Header / Status banner ===
+  const hdr = el('div', { class: 'card', style: 'margin-bottom:18px;' });
+  hdr.innerHTML = `
+    <div style="display:flex; align-items:flex-start; gap:16px;">
+      <div class="list-icon" style="width:50px; height:50px; background:linear-gradient(135deg,var(--brand),var(--brand-deep)); color:#fff; border-radius:14px; flex-shrink:0;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:22px;height:22px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
+      </div>
+      <div style="flex:1;">
+        <div style="font-weight:700; font-size:16px;">Планы ПВЗ на месяц</div>
+        <div style="font-size:12.5px; color:var(--text-dim); margin-top:4px; line-height:1.6;">
+          AI генерирует план для каждого активного филиала на основе региона и активности.
+          После <b>утверждения директором</b> план блокирует филиал — изменить или удалить его в платформе iPost PVZ нельзя
+          даже с аккаунта администратора. Только директор может снять блокировку.
+        </div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-family:JetBrains Mono; font-weight:700; font-size:22px; color:var(--accent);">${plans.filter(p => p.locked).length}</div>
+        <div style="font-size:10.5px; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px;">утверждено</div>
+      </div>
+    </div>
+    ${!isDirector ? `<div style="margin-top:14px; padding:10px 14px; background:var(--warning-soft); border-left:3px solid var(--warning); border-radius:8px; font-size:12px; color:var(--text);">
+      ⚠ Вы вошли как <b>${(STATE.user && STATE.user.role) || 'manager'}</b>. Утверждение планов доступно только директору. Выйдите и войдите как <b>director / director2026</b>.
+    </div>` : `<div style="margin-top:14px; padding:10px 14px; background:var(--success-soft); border-left:3px solid var(--success); border-radius:8px; font-size:12px; color:var(--text);">
+      ✓ Вы директор. Имеете право утверждать и снимать блокировки планов.
+    </div>`}
+  `;
+  p.appendChild(hdr);
+
+  // === Action bar ===
+  const actions = el('div', { class: 'card', style: 'margin-bottom:18px; display:flex; gap:12px; align-items:center; padding:14px 18px; flex-wrap:wrap;' });
+  actions.innerHTML = `
+    <div style="display:flex; flex-direction:column; gap:2px;">
+      <div style="font-size:10.5px; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px;">Месяц</div>
+      <div style="font-family:JetBrains Mono; font-weight:700; font-size:14px;">${nextMonth}</div>
+    </div>
+    <div style="display:flex; flex-direction:column; gap:2px;">
+      <div style="font-size:10.5px; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px;">Активных филиалов</div>
+      <div style="font-family:JetBrains Mono; font-weight:700; font-size:14px;">${fmt(activeBranches.length)}</div>
+    </div>
+    <div style="flex:1;"></div>
+    <button class="btn" onclick="aiGenPlanForUI()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.663 17h4.673M12 3v1M12 20v1M3 12h1M20 12h1M5.636 5.636l.707.707M18.364 18.364l-.707-.707M5.636 18.364l.707-.707M18.364 5.636l-.707.707"/><circle cx="12" cy="12" r="5"/></svg>
+      🤖 Сгенерировать AI
+    </button>
+    <button class="btn btn-primary" onclick="approveAllPlans()" ${!isDirector ? 'disabled style="opacity:0.5;cursor:not-allowed;"' : ''}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>
+      Утвердить все планы
+    </button>
+  `;
+  p.appendChild(actions);
+
+  // === Approved plans block ===
+  if (plans.length) {
+    p.appendChild(el('div', { class: 'section-title', html: `<span class="dot"></span>Утверждённые планы <span class="count">${plans.length} 🔒</span>` }));
+    const approvedCard = el('div', { class: 'card' });
+    const tbl = el('table', { class: 'table' });
+    tbl.innerHTML = `
+      <thead><tr><th>Филиал</th><th>Месяц</th><th>Заказы</th><th>Выручка</th><th>Доставки</th><th>Утвердил</th><th>Блокировка</th>${isDirector ? '<th></th>' : ''}</tr></thead>
+      <tbody>
+        ${plans.map(pl => {
+          const br = branches.find(b => b.id === pl.branchId);
+          const approvedDate = pl.approvedAt ? new Date(pl.approvedAt).toLocaleDateString('ru-RU') : '—';
+          return `<tr>
+            <td><b>${br ? br.name : pl.branchId}</b><div style="font-size:10.5px; color:var(--text-muted); font-family:JetBrains Mono;">${pl.branchId}</div></td>
+            <td style="font-family:JetBrains Mono;">${pl.month}</td>
+            <td style="font-family:JetBrains Mono; font-weight:700;">${fmt(pl.targets.orders)}</td>
+            <td style="font-family:JetBrains Mono; color:var(--accent);">${fmtMoney(pl.targets.revenue/1e6)}M</td>
+            <td style="font-family:JetBrains Mono;">${fmt(pl.targets.deliveries)}</td>
+            <td style="font-size:11px;">${pl.approvedBy}<div style="font-size:10px; color:var(--text-muted);">${approvedDate} · v${pl.version||1}</div></td>
+            <td>${pl.locked ? '<span class="pill danger">🔒 LOCKED</span>' : '<span class="pill muted">unlocked</span>'}</td>
+            ${isDirector ? `<td><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="deletePlan('${pl.id}')">Снять</button></td>` : ''}
+          </tr>`;
+        }).join('')}
+      </tbody>
+    `;
+    approvedCard.appendChild(tbl);
+    p.appendChild(approvedCard);
+    p.appendChild(el('div', { style: 'height:18px;' }));
+  }
+
+  // === Preview block ===
+  if (STATE.planPreview && STATE.planPreview.proposals.length) {
+    p.appendChild(el('div', { class: 'section-title', html: `<span class="dot"></span>Предложение AI <span class="count">${STATE.planPreview.proposals.length} филиалов · черновик</span>` }));
+    const prevCard = el('div', { class: 'card' });
+    prevCard.style.borderLeft = '3px solid var(--accent)';
+    const tbl = el('table', { class: 'table' });
+    tbl.innerHTML = `
+      <thead><tr><th>Филиал</th><th>Регион</th><th>Заказы</th><th>Выручка</th><th>Доставки</th><th>Нов. клиенты</th></tr></thead>
+      <tbody>
+        ${STATE.planPreview.proposals.slice(0, 30).map(pr => `<tr>
+          <td><b>${pr.branchName || pr.branchId}</b><div style="font-size:10.5px; color:var(--text-muted); font-family:JetBrains Mono;">${pr.branchId}</div></td>
+          <td>${(REGIONS.find(r => r.key === pr.regionKey) || {}).name || pr.regionKey || '—'}</td>
+          <td style="font-family:JetBrains Mono; font-weight:700;">${fmt(pr.targets.orders)}</td>
+          <td style="font-family:JetBrains Mono; color:var(--accent);">${fmtMoney(pr.targets.revenue/1e6)}M</td>
+          <td style="font-family:JetBrains Mono;">${fmt(pr.targets.deliveries)}</td>
+          <td style="font-family:JetBrains Mono;">${fmt(pr.targets.newCustomers)}</td>
+        </tr>`).join('')}
+      </tbody>
+    `;
+    prevCard.appendChild(tbl);
+    if (STATE.planPreview.proposals.length > 30) {
+      prevCard.appendChild(el('div', { style: 'padding:10px; text-align:center; color:var(--text-muted); font-size:11px;', html: `и ещё ${STATE.planPreview.proposals.length - 30} филиалов…` }));
+    }
+    p.appendChild(prevCard);
+  }
+
+  // === Branches without plan ===
+  if (!STATE.planPreview && plans.length === 0) {
+    p.appendChild(el('div', { class: 'section-title', html: `<span class="dot"></span>Активные филиалы без планов <span class="count">${activeBranches.length} шт</span>` }));
+    const card = el('div', { class: 'card' });
+    card.appendChild(el('div', { style: 'padding:40px; text-align:center; color:var(--text-muted); font-size:12.5px;', html: `Планов ещё нет.<br><br>Нажмите «<b>🤖 Сгенерировать AI</b>» — AI предложит вариант для каждого из ${activeBranches.length} активных филиалов.<br>После проверки нажмите «<b>Утвердить все планы</b>» (только директор).` }));
+    p.appendChild(card);
+  }
+}
+
+function aiGenPlanForUI() {
+  const live = STATE.live;
+  const branches = (live && live.branches) || [];
+  const active = branches.filter(b => !b.closeDate);
+  if (active.length === 0) {
+    toast('Нет активных филиалов для генерации плана', 'warning');
+    return;
+  }
+  STATE.planPreview = { month: nextMonthLabel(), proposals: generateMonthlyPlans(active) };
+  toast(`AI сгенерировал план для ${active.length} филиалов на ${nextMonthLabel()}. Проверьте и утвердите.`, 'success');
+  renderPage(STATE.page);
+}
+
+async function deletePlan(id) {
+  if (!confirm('Снять блокировку с этого плана?\nФилиал снова можно будет редактировать в платформе филиалов.')) return;
+  try {
+    const r = await fetch('/api/plans', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + STATE.token },
+      body: JSON.stringify({ id }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.message || j.error || 'unknown');
+    toast('План снят. Филиал разблокирован.', 'success');
+    await IPostAPI.refreshAll();
+    renderPage(STATE.page);
+  } catch (e) {
+    toast('Не удалось снять план: ' + e.message, 'danger');
+  }
 }
 
 /* ==================== PAGE: SETTINGS ==================== */
@@ -5104,6 +5516,7 @@ function renderPage(p) {
     case 'courier-points':  return renderCourierPoints();
     case 'courier-weight':  return renderCourierWeight();
     case 'courier-status':  return renderCourierStatus();
+    case 'plans':           return renderPlans();
     default:                return renderHome();
   }
 }

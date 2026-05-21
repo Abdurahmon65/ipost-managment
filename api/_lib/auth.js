@@ -110,6 +110,18 @@ const DEFAULT_ADMIN = {
 };
 const DEFAULT_ADMIN_PASSWORD = '2026';
 
+// Director account — has elevated permissions. Manager cannot edit director-locked plans.
+const DEFAULT_DIRECTOR = {
+  id: 'U-DIRECTOR',
+  fullName: 'iPost Director',
+  phone: '+998 90 000 00 00',
+  email: 'director@ipost.uz',
+  login: 'director',
+  role: 'director',
+  createdAt: 0,
+};
+const DEFAULT_DIRECTOR_PASSWORD = 'director2026';
+
 export async function ensureDefaultAdmin() {
   const users = await getUsers();
   const idx = users.findIndex(u => (u.login || '').toLowerCase() === 'ipost');
@@ -121,23 +133,56 @@ export async function ensureDefaultAdmin() {
       salt,
       passwordHash: hashPassword(DEFAULT_ADMIN_PASSWORD, salt),
     });
-    await setUsers(users);
-    return users[0];
+  } else {
+    const u = users[idx];
+    let changed = false;
+    if (u.role !== 'manager') { u.role = 'manager'; changed = true; }
+    if (u.phone !== DEFAULT_ADMIN.phone) { u.phone = DEFAULT_ADMIN.phone; changed = true; }
+    if (!u.salt || !u.passwordHash || !verifyPassword(DEFAULT_ADMIN_PASSWORD, u.salt, u.passwordHash)) {
+      const salt = generateSalt();
+      u.salt = salt;
+      u.passwordHash = hashPassword(DEFAULT_ADMIN_PASSWORD, salt);
+      changed = true;
+    }
+    if (changed) users[idx] = u;
   }
-  // Ensure password is correct and role is manager (self-heal)
-  const u = users[idx];
-  let changed = false;
-  if (u.role !== 'manager') { u.role = 'manager'; changed = true; }
-  if (u.phone !== DEFAULT_ADMIN.phone) { u.phone = DEFAULT_ADMIN.phone; changed = true; }
-  if (!u.salt || !u.passwordHash || !verifyPassword(DEFAULT_ADMIN_PASSWORD, u.salt, u.passwordHash)) {
+
+  // Ensure director account too
+  const didx = users.findIndex(u => (u.login || '').toLowerCase() === 'director');
+  if (didx === -1) {
     const salt = generateSalt();
-    u.salt = salt;
-    u.passwordHash = hashPassword(DEFAULT_ADMIN_PASSWORD, salt);
-    changed = true;
+    users.unshift({
+      ...DEFAULT_DIRECTOR,
+      createdAt: Date.now(),
+      salt,
+      passwordHash: hashPassword(DEFAULT_DIRECTOR_PASSWORD, salt),
+    });
+  } else {
+    const u = users[didx];
+    let changed = false;
+    if (u.role !== 'director') { u.role = 'director'; changed = true; }
+    if (!u.salt || !u.passwordHash || !verifyPassword(DEFAULT_DIRECTOR_PASSWORD, u.salt, u.passwordHash)) {
+      const salt = generateSalt();
+      u.salt = salt;
+      u.passwordHash = hashPassword(DEFAULT_DIRECTOR_PASSWORD, salt);
+      changed = true;
+    }
+    if (changed) users[didx] = u;
   }
-  if (changed) {
-    users[idx] = u;
-    await setUsers(users);
+
+  await setUsers(users);
+  return users.find(u => u.login === 'ipost');
+}
+
+/* ---------- Role helpers ---------- */
+export function isDirector(user) {
+  return !!user && (user.role === 'director' || user.login === 'director');
+}
+export function requireDirector(authCtx, res) {
+  if (!authCtx) return false;
+  if (!isDirector(authCtx.user)) {
+    res.status(403).json({ error: 'forbidden', message: 'director_role_required' });
+    return false;
   }
-  return u;
+  return true;
 }

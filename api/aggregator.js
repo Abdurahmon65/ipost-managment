@@ -4,8 +4,16 @@
 //
 // Returns a single normalized "BoardState" used by director.html.
 
-import { getBranches, getRecords, getUsers } from './_lib/redis.js';
-import { requireAuth, safeUser } from './_lib/auth.js';
+import { getBranches, getRecords, getUsers, redis } from './_lib/redis.js';
+import { requireAuth, safeUser, isDirector } from './_lib/auth.js';
+
+async function getPlans() {
+  try {
+    const raw = await redis.get('data:plans');
+    if (!raw) return [];
+    return typeof raw === 'string' ? JSON.parse(raw) : raw;
+  } catch { return []; }
+}
 
 const DISPATCH_URL = process.env.DISPATCH_URL || 'http://localhost:8080';
 const DISPATCH_TIMEOUT_MS = 2500;
@@ -120,10 +128,11 @@ export default async function handler(req, res) {
     if (!ctx) return;
     if (req.method !== 'GET') return res.status(405).json({ error: 'method_not_allowed' });
 
-    const [branches, records, users, dispatch] = await Promise.all([
+    const [branches, records, users, plans, dispatch] = await Promise.all([
       getBranches().catch(() => []),
       getRecords().catch(() => []),
       getUsers().catch(() => []),
+      getPlans().catch(() => []),
       loadDispatch(),
     ]);
 
@@ -149,6 +158,8 @@ export default async function handler(req, res) {
       // Full lists — no slicing, send everything
       branches: branches || [],
       branchesTotal: (branches || []).length,
+      plans: plans || [],
+      isDirector: isDirector(ctx.user),
       users: (users || []).map(safeUser),
       records: (records || []).slice(0, 100),
       dispatch: {

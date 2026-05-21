@@ -1,10 +1,23 @@
-import { getBranches, setBranches, appendRecord } from './_lib/redis.js';
+import { getBranches, setBranches, appendRecord, redis } from './_lib/redis.js';
 import {
   generateBranchId,
   generateRecordId,
   requireAuth,
   requireManager,
+  isDirector,
 } from './_lib/auth.js';
+
+// Check if a given branch is "locked" by an active director plan for the current/future month.
+async function getLockedPlanForBranch(branchId) {
+  try {
+    const raw = await redis.get('data:plans');
+    const plans = !raw ? [] : (typeof raw === 'string' ? JSON.parse(raw) : raw);
+    const today = new Date();
+    const ym = today.toISOString().slice(0, 7); // 'YYYY-MM'
+    // A plan locks the branch if month >= current month
+    return plans.find(p => p.branchId === branchId && p.locked === true && (p.month || '') >= ym) || null;
+  } catch { return null; }
+}
 
 function logEntry(eventKey, user, branch, extra = '') {
   return {
@@ -126,9 +139,19 @@ export default async function handler(req, res) {
       const idx = branches.findIndex(b => b.id === id);
       if (idx === -1) return res.status(404).json({ error: 'not_found' });
 
-      // Status toggle: manager only
+      // PLAN LOCK CHECK — director can override, manager/operator cannot.
+      const lockedPlan = await getLockedPlanForBranch(id);
+      if (lockedPlan && !isDirector(me)) {
+        return res.status(423).json({
+          error: 'plan_locked',
+          message: 'Филиал заблокирован планом директора на месяц ' + lockedPlan.month + '. Изменения возможны только из директорского аккаунта.',
+          plan: { id: lockedPlan.id, month: lockedPlan.month, approvedBy: lockedPlan.approvedBy, approvedAt: lockedPlan.approvedAt },
+        });
+      }
+
+      // Status toggle: manager only (director also allowed)
       if (action === 'toggleStatus') {
-        if (!isManager) {
+        if (!isManager && !isDirector(me)) {
           return res.status(403).json({ error: 'forbidden', message: 'manager_role_required' });
         }
         const current = branches[idx];
@@ -149,15 +172,18 @@ export default async function handler(req, res) {
       return res.status(200).json({ branch: merged });
     }
 
-    // DELETE  (manager only)
+    // DELETE  (manager only; director can override plan-lock)
     if (req.method === 'DELETE') {
-      if (!isManager) {
+      if (!isManager && !isDirector(me)) {
         return res.status(403).json({ error: 'forbidden', message: 'manager_role_required' });
       }
       const { id, all } = req.body || {};
 
-      // Clear all
+      // Clear all — director only (mass delete + plan lock would be massive)
       if (all === true) {
+        if (!isDirector(me)) {
+          return res.status(403).json({ error: 'forbidden', message: 'director_role_required_for_bulk_delete' });
+        }
         const old = await getBranches();
         await setBranches([]);
         await appendRecord({
@@ -176,6 +202,17 @@ export default async function handler(req, res) {
       const branches = await getBranches();
       const target = branches.find(b => b.id === id);
       if (!target) return res.status(404).json({ error: 'not_found' });
+
+      // PLAN LOCK CHECK
+      const lockedPlan = await getLockedPlanForBranch(id);
+      if (lockedPlan && !isDirector(me)) {
+        return res.status(423).json({
+          error: 'plan_locked',
+          message: 'Филиал заблокирован планом директора на месяц ' + lockedPlan.month + '. Удаление возможно только из директорского аккаунта.',
+          plan: { id: lockedPlan.id, month: lockedPlan.month, approvedBy: lockedPlan.approvedBy },
+        });
+      }
+
       const next = branches.filter(b => b.id !== id);
       await setBranches(next);
       await appendRecord(logEntry('ev_deleted', me, target));
