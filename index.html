@@ -1031,6 +1031,31 @@
   .status-pulse.offline  { background: var(--text-muted); }
   .status-pulse.not-working { background: var(--danger); }
 
+  /* LANG SWITCHER */
+  .lang-switch {
+    display: inline-flex;
+    padding: 3px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    gap: 2px;
+  }
+  .lang-opt {
+    padding: 5px 9px; border-radius: 7px;
+    font-size: 10.5px; font-weight: 700; letter-spacing: 0.5px;
+    color: var(--text-dim);
+    cursor: pointer; transition: all 0.18s;
+    border: none; background: transparent;
+    font-family: inherit;
+    text-transform: uppercase;
+  }
+  .lang-opt:hover { color: var(--text); background: var(--panel-3); }
+  .lang-opt.active {
+    background: linear-gradient(135deg, var(--brand) 0%, var(--brand-deep) 100%);
+    color: #fff;
+    box-shadow: 0 3px 8px rgba(0,51,204,0.35);
+  }
+
   /* SOURCE BADGES (topbar) */
   #source-badges { display: inline-flex; gap: 6px; }
   .src-badge {
@@ -1099,23 +1124,30 @@
         </div>
         <div class="logo-text">
           <span class="top">iPost<span class="go-mark">GO</span></span>
-          <span class="bottom">Director Suite</span>
+          <span class="bottom" data-i18n="brand_sub">Director Suite</span>
         </div>
       </div>
     </div>
-    <h2>Центр управления</h2>
-    <div class="gate-sub">Единый вход для iPost PVZ + iPost GO Dispatch</div>
+    <div style="display:flex; justify-content:center; margin-bottom:18px;">
+      <div class="lang-switch">
+        <button class="lang-opt" data-lang="en" onclick="setLang('en')">EN</button>
+        <button class="lang-opt active" data-lang="ru" onclick="setLang('ru')">RU</button>
+        <button class="lang-opt" data-lang="uz" onclick="setLang('uz')">UZ</button>
+      </div>
+    </div>
+    <h2 data-i18n="gate_h2">Центр управления</h2>
+    <div class="gate-sub" data-i18n="gate_sub">Единый вход для iPost PVZ + iPost GO Dispatch</div>
     <div class="form-row">
-      <label>Логин или Email</label>
+      <label data-i18n="gate_login">Логин или Email</label>
       <input type="text" id="gate-login" value="ipost" autocomplete="username">
     </div>
     <div class="form-row">
-      <label>Пароль</label>
+      <label data-i18n="gate_pass">Пароль</label>
       <input type="password" id="gate-pass" value="2026" autocomplete="current-password">
     </div>
     <button class="btn btn-primary" style="width:100%; margin-top:6px;" onclick="doLogin()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
-      Войти в систему
+      <span data-i18n="gate_btn">Войти в систему</span>
     </button>
     <div style="text-align:center; font-size:11px; color:var(--text-muted); margin-top:14px; line-height:1.6;">
       <b>iPost PVZ:</b> ipost / 2026 (Manager)<br>
@@ -1143,7 +1175,7 @@
         </div>
         <div class="logo-text">
           <span class="top">iPost<span class="go-mark">GO</span></span>
-          <span class="bottom">Director Suite</span>
+          <span class="bottom" data-i18n="brand_sub">Director Suite</span>
         </div>
       </div>
     </div>
@@ -1173,7 +1205,12 @@
       </div>
       <div class="topbar-actions">
         <div id="source-badges"></div>
-        <div class="live-pill"><span class="pulse"></span><span>LIVE</span></div>
+        <div class="lang-switch" id="lang-switch">
+          <button class="lang-opt" data-lang="en" onclick="setLang('en')">EN</button>
+          <button class="lang-opt active" data-lang="ru" onclick="setLang('ru')">RU</button>
+          <button class="lang-opt" data-lang="uz" onclick="setLang('uz')">UZ</button>
+        </div>
+        <div class="live-pill"><span class="pulse"></span><span data-i18n="live">LIVE</span></div>
         <button class="icon-btn" onclick="toggleTheme()" title="Тема">
           <svg id="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="4"/>
@@ -1186,7 +1223,7 @@
         </button>
         <button class="btn btn-primary" onclick="exportReport()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
-          Отчёт PDF
+          <span data-i18n="report_pdf">Отчёт PDF</span>
         </button>
         <button class="icon-btn" onclick="doLogout()" title="Выход">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
@@ -1262,11 +1299,184 @@ const STATE = {
   range: '30d',
   token: null,                          // ipost-pvz session token
   live: null,                           // last aggregator payload (or null = mock mode)
+  lang: localStorage.getItem('ipost-lang') || 'ru',
   sources: {                            // connection status
     pvz:      { online: false, lastChecked: 0, error: null, count: 0 },
     dispatch: { online: false, lastChecked: 0, error: null, url: 'http://localhost:8080' },
   },
 };
+
+/* ==================== I18N ==================== */
+const I18N = {
+  ru: {
+    // Brand / Gate
+    brand_sub:        'Director Suite',
+    gate_h2:          'Центр управления',
+    gate_sub:         'Единый вход для iPost PVZ + iPost GO Dispatch',
+    gate_login:       'Логин или Email',
+    gate_pass:        'Пароль',
+    gate_btn:         'Войти в систему',
+    // Top bar / Actions
+    live:             'LIVE',
+    report_pdf:       'Отчёт PDF',
+    // Nav sections
+    nav_general:      'Общее',
+    nav_courier:      '🚴 Курьерская',
+    nav_dispatch:     '🚚 iPost GO — Диспетчер',
+    nav_pvz:          '🏢 ПВЗ (Филиалы)',
+    nav_other:        'Прочее',
+    // Nav items
+    'menu.home':       'Сводка',
+    'menu.analytics':  'Аналитика',
+    'menu.courier':    'Главная',
+    'menu.courier_daily':   'Ежедневный отчёт',
+    'menu.courier_monthly': 'Ежемесячный отчёт',
+    'menu.courier_tracks':  'Треки',
+    'menu.courier_points':  'Точки доставки',
+    'menu.courier_weight':  'Вес и груз',
+    'menu.courier_status':  'Статусы курьеров',
+    'menu.logistics':  'Маршруты',
+    'menu.orders':     'Заказы',
+    'menu.fleet':      'Автопарк',
+    'menu.customers':  'Клиенты',
+    'menu.branches':   'Филиалы',
+    'menu.map':        'Карта сети',
+    'menu.finance':    'Финансы',
+    'menu.team':       'Команда',
+    'menu.reports':    'Отчёты',
+    'menu.settings':   'Настройки',
+    // Tabs
+    tab_courier_sum:  'Сводка курьерской',
+    tab_pvz_sum:      'Сводка ПВЗ',
+    tab_log_sum:      'Сводка логистики',
+    tab_courier_an:   'Аналитика курьерской',
+    tab_pvz_an:       'Аналитика ПВЗ',
+    tab_log_an:       'Аналитика логистики',
+    // Profile / settings
+    settings_profile:  'Профиль директора',
+    settings_security: 'Безопасность и доступы',
+    // Misc
+    no_data:          'нет данных',
+    logout_title:     'Выход',
+  },
+  en: {
+    brand_sub:        'Director Suite',
+    gate_h2:          'Control Center',
+    gate_sub:         'Single sign-on for iPost PVZ + iPost GO Dispatch',
+    gate_login:       'Login or Email',
+    gate_pass:        'Password',
+    gate_btn:         'Sign in',
+    live:             'LIVE',
+    report_pdf:       'PDF Report',
+    nav_general:      'General',
+    nav_courier:      '🚴 Courier',
+    nav_dispatch:     '🚚 iPost GO — Dispatch',
+    nav_pvz:          '🏢 PVZ (Branches)',
+    nav_other:        'Other',
+    'menu.home':       'Overview',
+    'menu.analytics':  'Analytics',
+    'menu.courier':    'Home',
+    'menu.courier_daily':   'Daily report',
+    'menu.courier_monthly': 'Monthly report',
+    'menu.courier_tracks':  'Tracks',
+    'menu.courier_points':  'Delivery points',
+    'menu.courier_weight':  'Weight & cargo',
+    'menu.courier_status':  'Courier statuses',
+    'menu.logistics':  'Routes',
+    'menu.orders':     'Orders',
+    'menu.fleet':      'Fleet',
+    'menu.customers':  'Customers',
+    'menu.branches':   'Branches',
+    'menu.map':        'Network map',
+    'menu.finance':    'Finance',
+    'menu.team':       'Team',
+    'menu.reports':    'Reports',
+    'menu.settings':   'Settings',
+    tab_courier_sum:  'Courier overview',
+    tab_pvz_sum:      'PVZ overview',
+    tab_log_sum:      'Logistics overview',
+    tab_courier_an:   'Courier analytics',
+    tab_pvz_an:       'PVZ analytics',
+    tab_log_an:       'Logistics analytics',
+    settings_profile:  'Director profile',
+    settings_security: 'Security & access',
+    no_data:          'no data',
+    logout_title:     'Log out',
+  },
+  uz: {
+    brand_sub:        'Direktor Paneli',
+    gate_h2:          'Boshqaruv Markazi',
+    gate_sub:         "iPost PVZ + iPost GO Dispatch uchun yagona kirish",
+    gate_login:       'Login yoki Email',
+    gate_pass:        'Parol',
+    gate_btn:         'Tizimga kirish',
+    live:             'LIVE',
+    report_pdf:       'PDF hisobot',
+    nav_general:      'Umumiy',
+    nav_courier:      '🚴 Kuryerlik',
+    nav_dispatch:     '🚚 iPost GO — Dispetcher',
+    nav_pvz:          '🏢 PVZ (Filiallar)',
+    nav_other:        'Boshqa',
+    'menu.home':       'Asosiy',
+    'menu.analytics':  'Tahlil',
+    'menu.courier':    'Bosh sahifa',
+    'menu.courier_daily':   'Kunlik hisobot',
+    'menu.courier_monthly': 'Oylik hisobot',
+    'menu.courier_tracks':  'Treklar',
+    'menu.courier_points':  'Yetkazib berish nuqtalari',
+    'menu.courier_weight':  'Vazn va yuk',
+    'menu.courier_status':  'Kuryer holatlari',
+    'menu.logistics':  'Marshrutlar',
+    'menu.orders':     'Buyurtmalar',
+    'menu.fleet':      'Avtopark',
+    'menu.customers':  'Mijozlar',
+    'menu.branches':   'Filiallar',
+    'menu.map':        'Tarmoq xaritasi',
+    'menu.finance':    'Moliya',
+    'menu.team':       'Jamoa',
+    'menu.reports':    'Hisobotlar',
+    'menu.settings':   'Sozlamalar',
+    tab_courier_sum:  'Kuryerlik xulosa',
+    tab_pvz_sum:      'PVZ xulosa',
+    tab_log_sum:      'Logistika xulosa',
+    tab_courier_an:   'Kuryerlik tahlili',
+    tab_pvz_an:       'PVZ tahlili',
+    tab_log_an:       'Logistika tahlili',
+    settings_profile:  'Direktor profili',
+    settings_security: 'Xavfsizlik va kirish',
+    no_data:          "ma'lumot yo'q",
+    logout_title:     'Chiqish',
+  },
+};
+function t(key) {
+  return (I18N[STATE.lang] && I18N[STATE.lang][key]) || (I18N.ru[key] || key);
+}
+function setLang(lang) {
+  if (!I18N[lang]) return;
+  STATE.lang = lang;
+  localStorage.setItem('ipost-lang', lang);
+  document.documentElement.setAttribute('lang', lang);
+  applyTranslations();
+  // Re-render visible parts so labels in JS-rendered components update
+  if (STATE.user) {
+    renderNav();
+    if (STATE.page) renderPage(STATE.page);
+  }
+}
+function applyTranslations() {
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.getAttribute('data-i18n');
+    const tr  = t(key);
+    if (tr) el.textContent = tr;
+  });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+    el.setAttribute('placeholder', t(el.getAttribute('data-i18n-placeholder')));
+  });
+  // Update language switcher
+  document.querySelectorAll('.lang-opt').forEach(b => {
+    b.classList.toggle('active', b.dataset.lang === STATE.lang);
+  });
+}
 
 /* ==================== DATA CONNECTOR ==================== */
 const IPostAPI = {
@@ -1385,48 +1595,48 @@ const ICONS = {
 
 const NAV_GROUPS = [
   {
-    section: 'Общее',
+    sectionKey: 'nav_general',
     items: [
-      { id: 'home',      label: 'Сводка',          icon: 'home' },
-      { id: 'analytics', label: 'Аналитика',       icon: 'analytics', badge: 'AI' },
+      { id: 'home',      labelKey: 'menu.home',      icon: 'home' },
+      { id: 'analytics', labelKey: 'menu.analytics', icon: 'analytics', badge: 'AI' },
     ]
   },
   {
-    section: '🚴 Курьерская',
+    sectionKey: 'nav_courier',
     open: true,
     items: [
-      { id: 'courier',          label: 'Главная',                icon: 'team' },
-      { id: 'courier-daily',    label: 'Ежедневный отчёт',       icon: 'clock' },
-      { id: 'courier-monthly',  label: 'Ежемесячный отчёт',      icon: 'reports' },
-      { id: 'courier-tracks',   label: 'Треки',                  icon: 'package' },
-      { id: 'courier-points',   label: 'Точки доставки',         icon: 'map' },
-      { id: 'courier-weight',   label: 'Вес и груз',             icon: 'fleet' },
-      { id: 'courier-status',   label: 'Статусы курьеров',       icon: 'star' },
+      { id: 'courier',          labelKey: 'menu.courier',         icon: 'team' },
+      { id: 'courier-daily',    labelKey: 'menu.courier_daily',   icon: 'clock' },
+      { id: 'courier-monthly',  labelKey: 'menu.courier_monthly', icon: 'reports' },
+      { id: 'courier-tracks',   labelKey: 'menu.courier_tracks',  icon: 'package' },
+      { id: 'courier-points',   labelKey: 'menu.courier_points',  icon: 'map' },
+      { id: 'courier-weight',   labelKey: 'menu.courier_weight',  icon: 'fleet' },
+      { id: 'courier-status',   labelKey: 'menu.courier_status',  icon: 'star' },
     ]
   },
   {
-    section: '🚚 iPost GO — Диспетчер',
+    sectionKey: 'nav_dispatch',
     items: [
-      { id: 'logistics', label: 'Маршруты',  icon: 'logistics' },
-      { id: 'orders',    label: 'Заказы',    icon: 'package' },
-      { id: 'fleet',     label: 'Автопарк',  icon: 'fleet' },
-      { id: 'customers', label: 'Клиенты',   icon: 'customers' },
+      { id: 'logistics', labelKey: 'menu.logistics', icon: 'logistics' },
+      { id: 'orders',    labelKey: 'menu.orders',    icon: 'package' },
+      { id: 'fleet',     labelKey: 'menu.fleet',     icon: 'fleet' },
+      { id: 'customers', labelKey: 'menu.customers', icon: 'customers' },
     ]
   },
   {
-    section: '🏢 ПВЗ (Филиалы)',
+    sectionKey: 'nav_pvz',
     items: [
-      { id: 'branches', label: 'Филиалы',    icon: 'branches' },
-      { id: 'map',      label: 'Карта сети', icon: 'map' },
+      { id: 'branches', labelKey: 'menu.branches', icon: 'branches' },
+      { id: 'map',      labelKey: 'menu.map',      icon: 'map' },
     ]
   },
   {
-    section: 'Прочее',
+    sectionKey: 'nav_other',
     items: [
-      { id: 'finance',  label: 'Финансы',    icon: 'finance' },
-      { id: 'team',     label: 'Команда',    icon: 'team' },
-      { id: 'reports',  label: 'Отчёты',     icon: 'reports' },
-      { id: 'settings', label: 'Настройки',  icon: 'settings' },
+      { id: 'finance',  labelKey: 'menu.finance',  icon: 'finance' },
+      { id: 'team',     labelKey: 'menu.team',     icon: 'team' },
+      { id: 'reports',  labelKey: 'menu.reports',  icon: 'reports' },
+      { id: 'settings', labelKey: 'menu.settings', icon: 'settings' },
     ]
   }
 ];
@@ -1700,6 +1910,7 @@ function renderNav() {
     const isCollapsed = collapsed[gi] === true || (group.open === false && collapsed[gi] !== false);
     const groupEl = el('div', { class: 'nav-group' + (isCollapsed ? ' collapsed' : '') });
 
+    const sectionLabel = group.sectionKey ? t(group.sectionKey) : (group.section || '');
     const toggle = el('button', {
       class: 'nav-group-toggle',
       onclick: () => {
@@ -1708,16 +1919,17 @@ function renderNav() {
         localStorage.setItem('ipost-go-nav-collapsed', JSON.stringify(cs));
         groupEl.classList.toggle('collapsed');
       },
-      html: '<span>' + group.section + '</span><span class="chev">▾</span>'
+      html: '<span>' + sectionLabel + '</span><span class="chev">▾</span>'
     });
     groupEl.appendChild(toggle);
 
     const itemsWrap = el('div', { class: 'nav-group-items' });
     for (const item of group.items) {
+      const label = item.labelKey ? t(item.labelKey) : (item.label || '');
       const btn = el('button', {
         class: 'nav-item' + (STATE.page === item.id ? ' active' : ''),
         onclick: () => { goTo(item.id); if (window.innerWidth < 1280) toggleSidebar(false); },
-        html: ICONS[item.icon] + '<span>' + item.label + '</span>' + (item.badge ? '<span class="nav-badge">' + item.badge + '</span>' : '')
+        html: ICONS[item.icon] + '<span>' + label + '</span>' + (item.badge ? '<span class="nav-badge">' + item.badge + '</span>' : '')
       });
       itemsWrap.appendChild(btn);
     }
@@ -1771,9 +1983,9 @@ function renderHome() {
   // === Tabs bar ===
   const tabs = el('div', { class: 'home-tabs' });
   const TAB_DEFS = [
-    { id: 'courier',   label: 'Сводка курьерской', count: courierCount, icon: 'courier'   },
-    { id: 'pvz',       label: 'Сводка ПВЗ',        count: pvzCount,     icon: 'pvz'       },
-    { id: 'logistics', label: 'Сводка логистики',  count: logCount,     icon: 'logistics' },
+    { id: 'courier',   label: t('tab_courier_sum'), count: courierCount, icon: 'courier'   },
+    { id: 'pvz',       label: t('tab_pvz_sum'),     count: pvzCount,     icon: 'pvz'       },
+    { id: 'logistics', label: t('tab_log_sum'),     count: logCount,     icon: 'logistics' },
   ];
   for (const t of TAB_DEFS) {
     const btn = el('button', {
@@ -2729,9 +2941,9 @@ function renderAnalytics() {
   // Tab bar — reuse home-tabs styles
   const tabs = el('div', { class: 'home-tabs' });
   const TAB_DEFS = [
-    { id: 'courier',   label: 'Аналитика курьерской', count: lk ? lk.drivers.total : 0, icon: 'courier'   },
-    { id: 'pvz',       label: 'Аналитика ПВЗ',        count: lk ? lk.branches.total: 0, icon: 'pvz'       },
-    { id: 'logistics', label: 'Аналитика логистики',  count: lk ? lk.routes.total  : 0, icon: 'logistics' },
+    { id: 'courier',   label: t('tab_courier_an'), count: lk ? lk.drivers.total : 0, icon: 'courier'   },
+    { id: 'pvz',       label: t('tab_pvz_an'),     count: lk ? lk.branches.total: 0, icon: 'pvz'       },
+    { id: 'logistics', label: t('tab_log_an'),     count: lk ? lk.routes.total  : 0, icon: 'logistics' },
   ];
   for (const t of TAB_DEFS) {
     tabs.appendChild(el('button', {
@@ -4756,91 +4968,6 @@ function renderSettings() {
     p.appendChild(migBanner);
   }
 
-  // ==================== DATA SOURCES (integration) ====================
-  const srcCard = el('div', { class: 'card' });
-  srcCard.appendChild(el('div', { class: 'card-head', html: `
-    <div><div class="h">Источники данных · Интеграция</div><div class="sub">Подключения к iPost PVZ и iPost GO Dispatch</div></div>
-    <button class="btn btn-primary" onclick="manualRefresh()">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-      Обновить
-    </button>
-  `}));
-  const pvzS = STATE.sources.pvz;
-  const dispS = STATE.sources.dispatch;
-  const lastCheck = (ts) => ts ? new Date(ts).toLocaleTimeString('ru-RU') : '—';
-  srcCard.innerHTML += `
-    <div class="row r-1-1" style="margin-bottom:0;">
-      <div style="padding:16px; border-radius:12px; background:var(--panel-2); border:1px solid var(--border);">
-        <div style="display:flex; align-items:center; gap:12px; margin-bottom:14px;">
-          <div class="list-icon" style="background:var(--accent-soft); color:var(--accent);">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21V9l-7-6-7 6v12M9 21v-6h6v6"/></svg>
-          </div>
-          <div style="flex:1;">
-            <div style="font-weight:700; font-size:14px;">iPost PVZ · Филиалы</div>
-            <div style="font-size:11px; color:var(--text-muted);">Vercel + Upstash Redis · /api/*</div>
-          </div>
-          <span class="pill ${pvzS.online ? 'success' : 'danger'}">${pvzS.online ? '● Подключено' : '○ Офлайн'}</span>
-        </div>
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:11.5px;">
-          <div><div style="color:var(--text-muted); font-size:10.5px; text-transform:uppercase; letter-spacing:1px;">Endpoint</div><div style="font-family:JetBrains Mono; margin-top:3px;">/api/aggregator</div></div>
-          <div><div style="color:var(--text-muted); font-size:10.5px; text-transform:uppercase; letter-spacing:1px;">Филиалов</div><div style="font-family:JetBrains Mono; font-weight:700; margin-top:3px;">${pvzS.count}</div></div>
-          <div><div style="color:var(--text-muted); font-size:10.5px; text-transform:uppercase; letter-spacing:1px;">Последняя проверка</div><div style="font-family:JetBrains Mono; margin-top:3px;">${lastCheck(pvzS.lastChecked)}</div></div>
-          <div><div style="color:var(--text-muted); font-size:10.5px; text-transform:uppercase; letter-spacing:1px;">Авторизация</div><div style="margin-top:3px;">${STATE.token ? '<span class="pill success">Токен</span>' : '<span class="pill warning">Демо</span>'}</div></div>
-        </div>
-        <button class="btn" style="margin-top:14px; width:100%;" onclick="openApp('pvz')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"/></svg>
-          Открыть iPost PVZ
-        </button>
-      </div>
-
-      <div style="padding:16px; border-radius:12px; background:var(--panel-2); border:1px solid var(--border);">
-        <div style="display:flex; align-items:center; gap:12px; margin-bottom:14px;">
-          <div class="list-icon" style="background:var(--purple-soft); color:var(--purple);">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 17h4V5H2v12h3M14 17h6v-5l-3-3h-3v8zM5.5 20a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM18.5 20a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z"/></svg>
-          </div>
-          <div style="flex:1;">
-            <div style="font-weight:700; font-size:14px;">iPost GO Dispatch</div>
-            <div style="font-size:11px; color:var(--text-muted);">Node.js server.cjs · маршруты, ТС, водители, заказы</div>
-          </div>
-          <span class="pill ${dispS.online ? 'success' : 'danger'}">${dispS.online ? '● Подключено' : '○ Офлайн'}</span>
-        </div>
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:11.5px;">
-          <div><div style="color:var(--text-muted); font-size:10.5px; text-transform:uppercase; letter-spacing:1px;">URL</div><div style="font-family:JetBrains Mono; margin-top:3px; word-break:break-all;">${dispS.url}</div></div>
-          <div><div style="color:var(--text-muted); font-size:10.5px; text-transform:uppercase; letter-spacing:1px;">Последняя проверка</div><div style="font-family:JetBrains Mono; margin-top:3px;">${lastCheck(dispS.lastChecked)}</div></div>
-          ${STATE.live && STATE.live.dispatch ? `
-            <div><div style="color:var(--text-muted); font-size:10.5px; text-transform:uppercase; letter-spacing:1px;">Маршруты</div><div style="font-family:JetBrains Mono; font-weight:700; margin-top:3px;">${STATE.live.dispatch.routes.length}</div></div>
-            <div><div style="color:var(--text-muted); font-size:10.5px; text-transform:uppercase; letter-spacing:1px;">Водители · ТС</div><div style="font-family:JetBrains Mono; font-weight:700; margin-top:3px;">${STATE.live.dispatch.drivers.length} · ${STATE.live.dispatch.vehicles.length}</div></div>
-          ` : `
-            <div style="grid-column: 1 / -1;"><div style="color:var(--text-muted); font-size:10.5px; text-transform:uppercase; letter-spacing:1px;">Ошибка</div><div style="font-family:JetBrains Mono; margin-top:3px; color:var(--danger);">${dispS.error || 'нет соединения'}</div></div>
-          `}
-        </div>
-        <div class="form-row" style="margin-top:14px; margin-bottom:0;">
-          <label>URL диспетчерской</label>
-          <input type="text" id="dispatch-url-input" value="${dispS.url}" placeholder="http://localhost:8080">
-        </div>
-        <div style="display:flex; gap:6px; margin-top:8px;">
-          <button class="btn" style="flex:1;" onclick="saveDispatchUrl()">Сохранить</button>
-          <button class="btn btn-primary" style="flex:1;" onclick="openApp('dispatch')">Открыть</button>
-        </div>
-      </div>
-    </div>
-  `;
-  p.appendChild(srcCard);
-
-  p.appendChild(el('div', { style: 'height:14px;' }));
-
-  // System info
-  const sys = el('div', { class: 'card' });
-  sys.appendChild(el('div', { class: 'card-head', html: `<div><div class="h">Системная информация</div><div class="sub">iPost GO Director Suite</div></div>`}));
-  sys.innerHTML += `
-    <div class="row r-4" style="margin-bottom:0;">
-      <div><div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px;">Версия</div><div style="font-family:JetBrains Mono; font-weight:700; font-size:14px; margin-top:4px;">v2.6.0</div></div>
-      <div><div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px;">Окружение</div><div style="font-family:JetBrains Mono; font-weight:700; font-size:14px; margin-top:4px;">PRODUCTION</div></div>
-      <div><div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px;">Резерв. копия</div><div style="font-family:JetBrains Mono; font-weight:700; font-size:14px; margin-top:4px;">2ч назад</div></div>
-      <div><div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px;">Текущий пользователь</div><div style="font-family:JetBrains Mono; font-weight:700; font-size:14px; margin-top:4px;">${(STATE.user && STATE.user.login) || '—'}</div></div>
-    </div>
-  `;
-  p.appendChild(sys);
 }
 
 /* ==================== SETTINGS ACTIONS ==================== */
@@ -5056,6 +5183,10 @@ if (savedTheme) {
   document.documentElement.setAttribute('data-theme', savedTheme);
   STATE.theme = savedTheme;
 }
+
+// Init language — apply on first paint
+document.documentElement.setAttribute('lang', STATE.lang);
+applyTranslations();
 
 // Init dispatch URL from storage
 const savedDispatchUrl = localStorage.getItem('ipost-go-dispatch-url');
