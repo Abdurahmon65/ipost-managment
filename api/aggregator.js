@@ -130,11 +130,12 @@ export default async function handler(req, res) {
     const regions = aggregateRegions(branches);
     const kpis    = buildKpis({ branches, dispatch, records });
 
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     return res.status(200).json({
       ts: Date.now(),
       me: safeUser(ctx.user),
       sources: {
-        pvz:      { online: true,            count: branches.length },
+        pvz:      { online: true, url: 'redis', count: branches.length },
         dispatch: { online: dispatch.online, url: DISPATCH_URL, error: dispatch.error,
                     counts: {
                       routes:   (dispatch.routes   || []).length,
@@ -145,19 +146,20 @@ export default async function handler(req, res) {
       },
       kpis,
       regions,
-      branches: (branches || []).slice(0, 200),     // cap payload
+      // Full lists — no slicing, send everything
+      branches: branches || [],
       branchesTotal: (branches || []).length,
       users: (users || []).map(safeUser),
-      records: (records || []).slice(0, 60),
+      records: (records || []).slice(0, 100),
       dispatch: {
         routes:        dispatch.routes        || [],
         drivers:       dispatch.drivers       || [],
         vehicles:      dispatch.vehicles      || [],
-        orders:        (dispatch.orders       || []).slice(0, 200),
+        orders:        dispatch.orders        || [],   // FULL list
         customers:     dispatch.customers     || [],
         depots:        dispatch.depots        || [],
-        activity:      (dispatch.activity     || []).slice(0, 30),
-        notifications: (dispatch.notifications|| []).slice(0, 20),
+        activity:      (dispatch.activity     || []).slice(0, 50),
+        notifications: (dispatch.notifications|| []).slice(0, 30),
       },
     });
   } catch (e) {

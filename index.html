@@ -1587,46 +1587,54 @@ function renderHome() {
   c.appendChild(el('div', { class: 'page active', id: 'p-home' }));
   const p = $('#p-home');
 
-  // === KPI ROW — live where possible, mock fallback ===
+  // === KPI ROW — ONLY LIVE DATA, no mock fallback ===
   const live = STATE.live;
   const liveKpi = live && live.kpis;
 
-  // PVZ branches
-  const totalBranches = liveKpi
-    ? liveKpi.branches.total
-    : REGIONS.reduce((a,b) => a + b.branches, 0);
+  // All values come from real backend data; "—" if not yet loaded
+  const totalBranches    = liveKpi ? liveKpi.branches.total      : null;
+  const activeBranches   = liveKpi ? liveKpi.branches.active     : null;
+  const dispOrders       = liveKpi ? liveKpi.orders.total        : null;
+  const dispRevenue      = liveKpi ? liveKpi.revenue.uzs / 1e6   : null;
+  const dispActiveRoutes = liveKpi ? liveKpi.routes.active       : null;
+  const dispTotalRoutes  = liveKpi ? liveKpi.routes.total        : null;
+  const dispActiveDrivers= liveKpi ? liveKpi.drivers.active      : null;
+  const dispTotalDrivers = liveKpi ? liveKpi.drivers.total       : null;
+  const dispCompletionPct= liveKpi ? liveKpi.orders.completionPct: null;
+  const dispCompleted    = liveKpi ? liveKpi.orders.completed    : null;
+  const dispVehiclesOn   = liveKpi ? liveKpi.vehicles.onRoute    : null;
+  const dispVehiclesTot  = liveKpi ? liveKpi.vehicles.total      : null;
+  const journalEntries   = liveKpi ? liveKpi.journal.entries     : null;
 
-  // Dispatch: today's orders + revenue (UZS → млн)
-  const dispOrders  = liveKpi ? liveKpi.orders.total : null;
-  const dispRevenue = liveKpi ? liveKpi.revenue.uzs / 1e6 : null;
-  const dispActiveRoutes = liveKpi ? liveKpi.routes.active : null;
-  const dispActiveDrivers = liveKpi ? liveKpi.drivers.active : null;
-  const dispCompletionPct = liveKpi ? liveKpi.orders.completionPct : null;
-
-  // Fallback values when offline (use mock)
-  const fallbackOrders  = REGIONS.reduce((a,b) => a + b.orders, 0);
-  const fallbackRevenue = REGIONS.reduce((a,b) => a + b.revenue, 0);
+  const dash = v => v == null ? '—' : v;
 
   const kpis = [
-    { l: 'Выручка (день)',     v: dispRevenue != null ? fmtMoney(dispRevenue) : fmtMoney(fallbackRevenue),
-                                u: 'млн UZS', d: '+14.2%', dir: 'up', icon: 'money',    kind: ''            },
-    { l: 'Заказы (день)',      v: dispOrders != null  ? fmt(dispOrders)       : fmt(fallbackOrders),
-                                u: '',         d: dispCompletionPct != null ? dispCompletionPct + '% выпол.' : '+8.4%',
+    { l: 'Выручка (день)',     v: dispRevenue != null ? fmtMoney(dispRevenue) : '—',
+                                u: 'млн UZS',
+                                d: dispCompleted != null ? `${fmt(dispCompleted)} доставок` : 'нет данных',
+                                dir: 'up', icon: 'money',    kind: ''            },
+    { l: 'Заказы (день)',      v: dispOrders != null ? fmt(dispOrders) : '—',
+                                u: '',
+                                d: dispCompletionPct != null ? dispCompletionPct + '% выполнения' : 'нет данных',
                                 dir: 'up', icon: 'package',  kind: 'kpi-success'  },
-    { l: 'Филиалы (PVZ)',      v: fmt(totalBranches),     u: 'ПВЗ',
-                                d: liveKpi ? liveKpi.branches.active + ' активн.' : '+5',
+    { l: 'Филиалы (PVZ)',      v: dash(totalBranches != null ? fmt(totalBranches) : null), u: 'ПВЗ',
+                                d: activeBranches != null ? activeBranches + ' активн.' : 'не подключено',
                                 dir: 'up', icon: 'branches', kind: 'kpi-purple'   },
-    { l: 'Активные маршруты',  v: dispActiveRoutes != null ? fmt(dispActiveRoutes) : '128', u: '',
-                                d: liveKpi ? liveKpi.routes.total + ' всего' : '+12',
+    { l: 'Активные маршруты',  v: dash(dispActiveRoutes != null ? fmt(dispActiveRoutes) : null), u: '',
+                                d: dispTotalRoutes != null ? dispTotalRoutes + ' всего' : 'нет данных',
                                 dir: 'up', icon: 'logistics',kind: 'kpi-warning'  },
-    { l: 'Курьеры на линии',   v: dispActiveDrivers != null ? fmt(dispActiveDrivers) : '147', u: '',
-                                d: liveKpi ? liveKpi.drivers.total + ' в штате' : '+4', dir: 'up', icon: 'team', kind: 'kpi-pink' },
-    { l: 'SLA выполнение',     v: '94.6',                 u: '%',        d: '+1.2%',  dir: 'up', icon: 'trend',    kind: 'kpi-success' },
-    { l: 'Машин в работе',     v: liveKpi ? fmt(liveKpi.vehicles.onRoute) : '68', u: '/' + (liveKpi ? liveKpi.vehicles.total : 85),
-                                d: liveKpi ? Math.round(liveKpi.vehicles.onRoute / Math.max(1, liveKpi.vehicles.total) * 100) + '%' : '80%',
+    { l: 'Курьеры на линии',   v: dash(dispActiveDrivers != null ? fmt(dispActiveDrivers) : null), u: '',
+                                d: dispTotalDrivers != null ? dispTotalDrivers + ' в штате' : 'нет данных',
+                                dir: 'up', icon: 'team', kind: 'kpi-pink' },
+    { l: 'Доставлено',         v: dash(dispCompleted != null ? fmt(dispCompleted) : null), u: '',
+                                d: dispCompletionPct != null ? dispCompletionPct + '% от ' + dispOrders : 'нет данных',
+                                dir: 'up', icon: 'star',    kind: 'kpi-success' },
+    { l: 'Машин в работе',     v: dash(dispVehiclesOn != null ? fmt(dispVehiclesOn) : null),
+                                u: dispVehiclesTot ? '/' + dispVehiclesTot : '',
+                                d: dispVehiclesTot ? Math.round((dispVehiclesOn||0) / Math.max(1, dispVehiclesTot) * 100) + '% в пути' : 'нет данных',
                                 dir: 'up', icon: 'fleet',    kind: ''             },
-    { l: 'События в журнале',  v: liveKpi ? fmt(liveKpi.journal.entries) : '7', u: '',
-                                d: liveKpi ? 'PVZ + Dispatch' : '−3', dir: 'up', icon: 'reports', kind: 'kpi-danger' },
+    { l: 'События в журнале',  v: dash(journalEntries != null ? fmt(journalEntries) : null), u: '',
+                                d: journalEntries != null ? 'PVZ + Dispatch' : 'нет данных', dir: 'up', icon: 'reports', kind: 'kpi-danger' },
   ];
   const kg = el('div', { class: 'kpi-grid' });
   for (const k of kpis) {
@@ -1706,15 +1714,19 @@ function renderHome() {
   const tlCard = el('div', { class: 'card' });
   const liveEvents = buildLiveTimeline();
   tlCard.appendChild(el('div', { class: 'card-head', html: `
-    <div><div class="h">Лента событий</div><div class="sub">${liveEvents.length ? 'Live · из обеих систем' : 'Демо-режим'}</div></div>
+    <div><div class="h">Лента событий</div><div class="sub">${liveEvents.length ? 'Live · ' + liveEvents.length + ' событий' : 'Пока нет событий'}</div></div>
   `}));
   const tl = el('div', { class: 'timeline scroll-area' });
-  for (const ev of liveEvents.length ? liveEvents : TIMELINE) {
-    tl.appendChild(el('div', { class: 'tl-item ' + ev.type, html: `
-      <div class="tl-time">${ev.t}</div>
-      <div class="tl-title">${ev.title}</div>
-      <div class="tl-desc">${ev.desc}</div>
-    `}));
+  if (liveEvents.length === 0) {
+    tl.appendChild(el('div', { style: 'padding:20px; text-align:center; color:var(--text-muted); font-size:12px;', html: 'Нет событий в реальных данных.<br>Активность появится здесь автоматически.' }));
+  } else {
+    for (const ev of liveEvents) {
+      tl.appendChild(el('div', { class: 'tl-item ' + ev.type, html: `
+        <div class="tl-time">${ev.t}</div>
+        <div class="tl-title">${ev.title}</div>
+        <div class="tl-desc">${ev.desc}</div>
+      `}));
+    }
   }
   tlCard.appendChild(tl);
   row2.appendChild(tlCard);
@@ -1728,7 +1740,7 @@ function renderHome() {
 
   const topCard = el('div', { class: 'card' });
   topCard.appendChild(el('div', { class: 'card-head', html: `
-    <div><div class="h">${useLiveBranches ? 'Филиалы ПВЗ (live)' : 'ТОП филиалов по выручке'}</div><div class="sub">${useLiveBranches ? STATE.live.branchesTotal + ' филиалов в реестре · показано ' + Math.min(6, liveBranches.length) : 'За текущий месяц'}</div></div>
+    <div><div class="h">Филиалы ПВЗ</div><div class="sub">${useLiveBranches ? STATE.live.branchesTotal + ' филиалов · показано ' + Math.min(8, liveBranches.length) : 'Не подключено к PVZ'}</div></div>
     <button class="chip" onclick="goTo('branches')">Все →</button>
   `}));
   const tableT = el('table', { class: 'table' });
@@ -1736,7 +1748,7 @@ function renderHome() {
     tableT.innerHTML = `
       <thead><tr><th>#</th><th>Филиал</th><th>Регион</th><th>Менеджер</th><th>Открыт</th><th>Статус</th></tr></thead>
       <tbody>
-        ${liveBranches.slice(0,6).map((b,i) => `
+        ${liveBranches.slice(0,8).map((b,i) => `
           <tr>
             <td><span style="font-weight:700; color:var(--text-muted);">${i+1}</span></td>
             <td><div style="font-weight:600;">${b.name || '—'}</div><div style="font-size:10.5px; color:var(--text-muted); font-family:'JetBrains Mono',monospace;">${b.id || ''}</div></td>
@@ -1748,36 +1760,24 @@ function renderHome() {
       </tbody>
     `;
   } else {
-    tableT.innerHTML = `
-      <thead><tr><th>#</th><th>Филиал</th><th>Регион</th><th>Заказы</th><th>Выручка</th><th>Рейтинг</th></tr></thead>
-      <tbody>
-        ${BRANCHES_TOP.slice(0,6).map((b,i) => `
-          <tr>
-            <td><span style="font-weight:700; color:var(--text-muted);">${i+1}</span></td>
-            <td><div style="font-weight:600;">${b.name}</div><div style="font-size:10.5px; color:var(--text-muted); font-family:'JetBrains Mono',monospace;">${b.id}</div></td>
-            <td>${b.region}</td>
-            <td style="font-family:'JetBrains Mono',monospace; font-weight:600;">${fmt(b.orders)}</td>
-            <td style="font-family:'JetBrains Mono',monospace; font-weight:700; color:var(--accent);">${b.revenue}M</td>
-            <td><span class="pill ${b.rating >= 4.7 ? 'success' : b.rating >= 4.5 ? 'brand' : 'warning'}">★ ${b.rating}</span></td>
-          </tr>`).join('')}
-      </tbody>
-    `;
+    tableT.innerHTML = `<tbody><tr><td colspan="6" style="text-align:center; padding:40px; color:var(--text-muted);">Нет филиалов в реестре или нет подключения к PVZ API</td></tr></tbody>`;
   }
   topCard.appendChild(tableT);
   row3.appendChild(topCard);
 
-  // Regions
+  // Regions — only live
   const regCard = el('div', { class: 'card' });
   const liveRegions = (STATE.live && STATE.live.regions) || [];
-  const useLiveRegions = liveRegions.length > 0;
   regCard.appendChild(el('div', { class: 'card-head', html: `
-    <div><div class="h">Регионы</div><div class="sub">${useLiveRegions ? 'Live · по реестру PVZ' : 'Распределение операций'}</div></div>
+    <div><div class="h">Регионы</div><div class="sub">${liveRegions.length ? liveRegions.length + ' регионов · live из PVZ' : 'Нет данных'}</div></div>
     <button class="chip" onclick="goTo('branches')">Все →</button>
   `}));
   const regList = el('div', { class: 'scroll-area' });
-  if (useLiveRegions) {
+  if (liveRegions.length === 0) {
+    regList.appendChild(el('div', { style: 'padding:20px; text-align:center; color:var(--text-muted); font-size:12px;', html: 'Регионы появятся, когда в PVZ будут филиалы.' }));
+  } else {
     const maxB = Math.max(1, ...liveRegions.map(r => r.branches));
-    for (const r of liveRegions.slice(0, 10)) {
+    for (const r of liveRegions.slice(0, 12)) {
       const pct = Math.round(r.branches / maxB * 100);
       regList.appendChild(el('div', { class: 'list-item', html: `
         <div class="list-icon">${(r.name||'?')[0]}</div>
@@ -1789,23 +1789,6 @@ function renderHome() {
         <div class="list-aside">
           <div class="v">${r.branches}</div>
           <span style="font-size:10px; color:var(--text-muted);">ПВЗ</span>
-        </div>
-      `}));
-    }
-  } else {
-    const maxRev = Math.max(...REGIONS.map(r => r.revenue));
-    for (const r of REGIONS.slice(0, 8)) {
-      const pct = Math.round(r.revenue / maxRev * 100);
-      regList.appendChild(el('div', { class: 'list-item', html: `
-        <div class="list-icon">${r.name[0]}</div>
-        <div class="list-body">
-          <div class="t1">${r.name}</div>
-          <div class="t2">${r.branches} ПВЗ · ${fmt(r.orders)} заказов</div>
-          <div style="margin-top:6px;"><div class="mini-bar"><span style="width:${pct}%"></span></div></div>
-        </div>
-        <div class="list-aside">
-          <div class="v">${r.revenue}M</div>
-          <span class="delta up" style="margin-top:4px;">▲ ${r.growth}%</span>
         </div>
       `}));
     }
@@ -1822,12 +1805,12 @@ function renderHome() {
   `}));
   const lk = live && live.kpis;
   speedCard.appendChild(el('div', { class: 'speed-board', html: `
-    <div class="speed-cell"><div class="l">Заказы в работе</div><div class="v">${lk ? fmt(lk.orders.total) : '284'}</div></div>
-    <div class="speed-cell"><div class="l">Доставлено</div><div class="v">${lk ? fmt(lk.orders.completed) : '196'}</div></div>
-    <div class="speed-cell"><div class="l">Маршрутов</div><div class="v">${lk ? fmt(lk.routes.total) : '+42'}</div></div>
-    <div class="speed-cell"><div class="l">Машин в пути</div><div class="v">${lk ? fmt(lk.vehicles.onRoute) : '68'}</div></div>
-    <div class="speed-cell"><div class="l">Курьеров на линии</div><div class="v">${lk ? fmt(lk.drivers.active) : '147'}</div></div>
-    <div class="speed-cell"><div class="l">Клиентов</div><div class="v">${live && live.dispatch ? fmt(live.dispatch.customers.length) : '12'}</div></div>
+    <div class="speed-cell"><div class="l">Заказы в работе</div><div class="v">${lk ? fmt(lk.orders.total) : '—'}</div></div>
+    <div class="speed-cell"><div class="l">Доставлено</div><div class="v">${lk ? fmt(lk.orders.completed) : '—'}</div></div>
+    <div class="speed-cell"><div class="l">Маршрутов</div><div class="v">${lk ? fmt(lk.routes.total) : '—'}</div></div>
+    <div class="speed-cell"><div class="l">Машин в пути</div><div class="v">${lk ? fmt(lk.vehicles.onRoute) : '—'}</div></div>
+    <div class="speed-cell"><div class="l">Курьеров на линии</div><div class="v">${lk ? fmt(lk.drivers.active) : '—'}</div></div>
+    <div class="speed-cell"><div class="l">Клиентов</div><div class="v">${live && live.dispatch && live.dispatch.customers ? fmt(live.dispatch.customers.length) : '—'}</div></div>
   `}));
   row4.appendChild(speedCard);
 
@@ -2361,34 +2344,7 @@ function renderLogistics() {
       </tbody>
     `;
   } else {
-    const routes = [
-      { id: 'R-001', from: 'Ташкент', to: 'Самарканд', driver: 'Олимов Ш.',   load: 92, eta: '4ч 20мин', status: 'on_time' },
-      { id: 'R-002', from: 'Ташкент', to: 'Бухара',    driver: 'Каримов Б.',  load: 78, eta: '7ч 10мин', status: 'on_time' },
-      { id: 'R-003', from: 'Самарканд',to: 'Карши',    driver: 'Юсупов А.',   load: 65, eta: '2ч 40мин', status: 'on_time' },
-      { id: 'R-004', from: 'Бухара',  to: 'Ургенч',    driver: 'Рахматов И.', load: 88, eta: '5ч 15мин', status: 'delayed' },
-      { id: 'R-005', from: 'Фергана', to: 'Андижан',   driver: 'Эргашев Ф.',  load: 70, eta: '1ч 30мин', status: 'on_time' },
-      { id: 'R-006', from: 'Наманган',to: 'Ташкент',   driver: 'Тошпулатов Д.',load: 55, eta: '3ч 50мин', status: 'on_time' },
-      { id: 'R-007', from: 'Ургенч',  to: 'Нукус',     driver: 'Аминов Р.',   load: 82, eta: '4ч 10мин', status: 'critical' },
-    ];
-    tbl.innerHTML = `
-      <thead><tr><th>ID</th><th>Маршрут</th><th>Водитель</th><th>Загрузка</th><th>ETA</th><th>Статус</th></tr></thead>
-      <tbody>
-        ${routes.map(r => `
-          <tr>
-            <td style="font-family:JetBrains Mono; font-weight:700;">${r.id}</td>
-            <td><b>${r.from}</b> <span style="color:var(--text-muted);">→</span> <b>${r.to}</b></td>
-            <td>${r.driver}</td>
-            <td>
-              <div style="display:flex; align-items:center; gap:8px;">
-                <span style="font-family:JetBrains Mono; font-weight:700; min-width:32px;">${r.load}%</span>
-                <div class="mini-bar ${r.load > 85 ? 'warning' : ''}" style="width:80px;"><span style="width:${r.load}%"></span></div>
-              </div>
-            </td>
-            <td style="font-family:JetBrains Mono;">${r.eta}</td>
-            <td>${r.status === 'on_time' ? '<span class="pill success">В срок</span>' : r.status === 'delayed' ? '<span class="pill warning">Задержка</span>' : '<span class="pill danger">Критично</span>'}</td>
-          </tr>`).join('')}
-      </tbody>
-    `;
+    tbl.innerHTML = `<tbody><tr><td colspan="8" style="text-align:center; padding:40px; color:var(--text-muted);">Нет маршрутов в Dispatch · подключение: ${STATE.sources.dispatch.url}</td></tr></tbody>`;
   }
   routesCard.appendChild(tbl);
   p.appendChild(routesCard);
@@ -2557,31 +2513,7 @@ function renderFleet() {
       </tbody>
     `;
   } else {
-    tbl.innerHTML = `
-      <thead><tr><th>Номер</th><th>Модель</th><th>Водитель</th><th>Регион</th><th>Загрузка</th><th>Пробег</th><th>Статус</th></tr></thead>
-      <tbody>
-        ${FLEET.map(f => `
-          <tr>
-            <td style="font-family:JetBrains Mono; font-weight:700;">${f.id}</td>
-            <td>${f.model}</td>
-            <td>${f.driver}</td>
-            <td>${f.region}</td>
-            <td>
-              <div style="display:flex; align-items:center; gap:8px;">
-                <span style="font-family:JetBrains Mono; font-weight:700; min-width:32px;">${f.load}%</span>
-                <div class="mini-bar ${f.load > 85 ? 'warning' : ''}" style="width:80px;"><span style="width:${f.load}%"></span></div>
-              </div>
-            </td>
-            <td style="font-family:JetBrains Mono;">${fmt(f.km)} км</td>
-            <td>${
-              f.status === 'on_route' ? '<span class="pill success">В пути</span>'
-              : f.status === 'loading' ? '<span class="pill warning">Загрузка</span>'
-              : f.status === 'service' ? '<span class="pill danger">ТО</span>'
-              : '<span class="pill muted">Простой</span>'
-            }</td>
-          </tr>`).join('')}
-      </tbody>
-    `;
+    tbl.innerHTML = `<tbody><tr><td colspan="8" style="text-align:center; padding:40px; color:var(--text-muted);">Нет машин в Dispatch · API не вернул данных<br><br>Проверьте подключение к ${STATE.sources.dispatch.url}</td></tr></tbody>`;
   }
   card.appendChild(tbl);
   p.appendChild(card);
@@ -2589,8 +2521,8 @@ function renderFleet() {
   // Driver leaderboard — live drivers when available
   p.appendChild(el('div', { style: 'height:14px;' }));
   const drv = el('div', { class: 'card' });
-  drv.appendChild(el('div', { class: 'card-head', html: `<div><div class="h">${useLive ? 'Курьеры iPost GO' : 'ТОП водителей'}</div><div class="sub">${useLive ? liveDrivers.length + ' человек · live из Dispatch' : 'По количеству доставок за месяц'}</div></div>`}));
-  if (useLive && liveDrivers.length) {
+  drv.appendChild(el('div', { class: 'card-head', html: `<div><div class="h">Курьеры iPost GO</div><div class="sub">${liveDrivers.length} человек · live из Dispatch</div></div>`}));
+  if (liveDrivers.length) {
     // Sort by rating desc, top 10
     const sortedDrivers = [...liveDrivers].sort((a,b) => (b.rating || 0) - (a.rating || 0)).slice(0, 10);
     for (const d of sortedDrivers) {
@@ -2612,25 +2544,7 @@ function renderFleet() {
       `}));
     }
   } else {
-    const drivers = [
-      { n: 'Олимов Шерзод',    deliveries: 482, ontime: 98.4, rating: 4.9 },
-      { n: 'Каримов Бахтиёр',  deliveries: 461, ontime: 96.2, rating: 4.8 },
-      { n: 'Юсупов Алишер',    deliveries: 438, ontime: 97.8, rating: 4.9 },
-      { n: 'Рахматов Икром',   deliveries: 412, ontime: 94.6, rating: 4.7 },
-      { n: 'Эргашев Фарход',   deliveries: 398, ontime: 95.2, rating: 4.8 },
-    ];
-    for (const d of drivers) {
-      drv.appendChild(el('div', { class: 'list-item', html: `
-        <div class="list-icon" style="background:var(--purple-soft); color:var(--purple);">${d.n.split(' ').map(x=>x[0]).join('')}</div>
-        <div class="list-body">
-          <div class="t1">${d.n}</div>
-          <div class="t2">${d.deliveries} доставок · ${d.ontime}% в срок</div>
-        </div>
-        <div class="list-aside">
-          <div class="v">★ ${d.rating}</div>
-        </div>
-      `}));
-    }
+    drv.appendChild(el('div', { style: 'padding:30px; text-align:center; color:var(--text-muted); font-size:12.5px;', html: 'Нет курьеров в Dispatch — данные появятся, когда они будут добавлены в logistic-system-tau.vercel.app' }));
   }
   p.appendChild(drv);
 }
@@ -2663,9 +2577,9 @@ function renderBranches() {
   `})));
   p.appendChild(kg);
 
-  // Regions cards — live first
+  // Regions cards — only live
   const grid = el('div', { class: 'row r-4' });
-  if (useLive && liveRegions.length) {
+  if (liveRegions.length) {
     const maxB = Math.max(1, ...liveRegions.map(r => r.branches));
     for (const r of liveRegions) {
       const pct = Math.round(r.branches / maxB * 100);
@@ -2692,29 +2606,7 @@ function renderBranches() {
       `}));
     }
   } else {
-    for (const r of REGIONS) {
-      grid.appendChild(el('div', { class: 'card', style: 'cursor:pointer;', html: `
-        <div style="display:flex; align-items:center; gap:10px;">
-          <div class="user-avatar" style="border-radius:10px;">${r.name[0]}</div>
-          <div style="flex:1; min-width:0;">
-            <div style="font-weight:700; font-size:13px;">${r.name}</div>
-            <div style="font-size:11px; color:var(--text-muted);">${r.branches} филиалов</div>
-          </div>
-          <span class="delta up">▲ ${r.growth}%</span>
-        </div>
-        <div style="display:flex; justify-content:space-between; margin-top:14px; font-size:11.5px;">
-          <span style="color:var(--text-dim);">Заказы</span>
-          <span style="font-family:JetBrains Mono; font-weight:700;">${fmt(r.orders)}</span>
-        </div>
-        <div style="display:flex; justify-content:space-between; margin-top:4px; font-size:11.5px;">
-          <span style="color:var(--text-dim);">Выручка</span>
-          <span style="font-family:JetBrains Mono; font-weight:700; color:var(--accent);">${r.revenue} млн</span>
-        </div>
-        <div style="margin-top:10px;">
-          <div class="mini-bar"><span style="width:${Math.round(r.revenue / 1842 * 100)}%"></span></div>
-        </div>
-      `}));
-    }
+    grid.appendChild(el('div', { style: 'grid-column: 1 / -1; padding:30px; text-align:center; color:var(--text-muted); font-size:12.5px; background:var(--panel); border-radius:14px; border:1px dashed var(--border);', html: 'Регионы появятся, когда в PVZ будут филиалы.<br><br>Подключитесь к ipost-filiallar.vercel.app, чтобы увидеть данные.' }));
   }
   p.appendChild(grid);
   p.appendChild(el('div', { style: 'height:14px;' }));
@@ -2750,22 +2642,7 @@ function renderBranches() {
       </tbody>
     `;
   } else {
-    tbl.innerHTML = `
-      <thead><tr><th>ID</th><th>Филиал</th><th>Регион</th><th>Менеджер</th><th>Заказы</th><th>Выручка</th><th>Рейтинг</th><th>Статус</th></tr></thead>
-      <tbody>
-        ${BRANCHES_TOP.map(b => `
-          <tr>
-            <td style="font-family:JetBrains Mono; font-weight:700; font-size:11px;">${b.id}</td>
-            <td><b>${b.name}</b></td>
-            <td>${b.region}</td>
-            <td>${b.manager}</td>
-            <td style="font-family:JetBrains Mono; font-weight:600;">${fmt(b.orders)}</td>
-            <td style="font-family:JetBrains Mono; font-weight:700; color:var(--accent);">${b.revenue} млн</td>
-            <td><span class="pill ${b.rating >= 4.7 ? 'success' : b.rating >= 4.5 ? 'brand' : 'warning'}">★ ${b.rating}</span></td>
-            <td>${b.status === 'active' ? '<span class="pill success">Активен</span>' : '<span class="pill warning">Внимание</span>'}</td>
-          </tr>`).join('')}
-      </tbody>
-    `;
+    tbl.innerHTML = `<tbody><tr><td colspan="8" style="text-align:center; padding:40px; color:var(--text-muted);">Нет филиалов · API не вернул данные<br><br>Войдите как <b>ipost / 2026</b> или проверьте подключение к ipost-filiallar.vercel.app</td></tr></tbody>`;
   }
   card.appendChild(tbl);
   p.appendChild(card);
@@ -3122,73 +2999,40 @@ function classifyDriver(d) {
   return 'offline';
 }
 
-// Pull all couriers (drivers) from live data, fall back to mock
+// Pull ALL couriers from live dispatch — NO MOCK FALLBACK
 function getAllCouriers() {
-  if (STATE.live && STATE.live.dispatch && STATE.live.dispatch.drivers.length) {
-    return STATE.live.dispatch.drivers.map(d => ({
-      id: d.id, name: d.name, phone: d.phone, avatar: d.avatar,
-      email: d.email, license: d.license, plate: d.plate || '',
-      vehicleId: d.vehicleId,
-      status: d.status,
-      bucket: classifyDriver(d),
-      rating: d.rating || 0,
-      onTimePct: d.onTimePct || 0,
-      deliveriesToday: d.deliveriesToday || 0,
-      lastLocation: d.lastLocation || null,
-    }));
-  }
-  // Mock courier set
-  return [
-    { id: 'drv_01', name: 'Бахтиёр Раҳимов',  phone:'+998 90 123 45 67', avatar:'БР', plate:'01 A777 AB', status:'on_route', bucket:'on_route',    rating:4.9, onTimePct:96, deliveriesToday:12 },
-    { id: 'drv_02', name: 'Жасур Тошпулатов', phone:'+998 91 234 56 78', avatar:'ЖТ', plate:'01 B452 CD', status:'on_route', bucket:'on_route',    rating:4.8, onTimePct:92, deliveriesToday:10 },
-    { id: 'drv_03', name: 'Шохрух Каримов',   phone:'+998 93 345 67 89', avatar:'ШК', plate:'01 C903 EF', status:'on_route', bucket:'on_route',    rating:4.7, onTimePct:88, deliveriesToday:8  },
-    { id: 'drv_04', name: 'Анвар Юсупов',     phone:'+998 94 456 78 90', avatar:'АЮ', plate:'01 D125 GH', status:'ready',    bucket:'online',      rating:4.9, onTimePct:97, deliveriesToday:0  },
-    { id: 'drv_05', name: 'Дилшод Алимов',    phone:'+998 95 567 89 01', avatar:'ДА', plate:'01 E776 IJ', status:'ready',    bucket:'online',      rating:4.6, onTimePct:91, deliveriesToday:0  },
-    { id: 'drv_06', name: 'Фарход Назаров',   phone:'+998 97 678 90 12', avatar:'ФН', plate:'01 F340 KL', status:'idle',     bucket:'online',      rating:4.8, onTimePct:94, deliveriesToday:0  },
-    { id: 'drv_07', name: 'Камрон Хасанов',   phone:'+998 98 789 01 23', avatar:'КХ', plate:'01 G891 MN', status:'issue',    bucket:'not_working', rating:4.5, onTimePct:81, deliveriesToday:4  },
-    { id: 'drv_08', name: 'Сардор Эргашев',   phone:'+998 99 890 12 34', avatar:'СЭ', plate:'01 H234 OP', status:'offline',  bucket:'offline',     rating:4.7, onTimePct:99, deliveriesToday:6  },
-    { id: 'drv_09', name: 'Рустам Махмудов',  phone:'+998 90 901 23 45', avatar:'РМ', plate:'',           status:'offline',  bucket:'offline',     rating:4.6, onTimePct:90, deliveriesToday:0  },
-    { id: 'drv_10', name: 'Олим Содиков',     phone:'+998 91 012 34 56', avatar:'ОС', plate:'',           status:'offline',  bucket:'offline',     rating:4.8, onTimePct:95, deliveriesToday:0  },
-  ];
+  if (!STATE.live || !STATE.live.dispatch || !Array.isArray(STATE.live.dispatch.drivers)) return [];
+  return STATE.live.dispatch.drivers.map(d => ({
+    id: d.id, name: d.name, phone: d.phone, avatar: d.avatar,
+    email: d.email, license: d.license, plate: d.plate || '',
+    vehicleId: d.vehicleId,
+    status: d.status,
+    bucket: classifyDriver(d),
+    rating: d.rating || 0,
+    onTimePct: d.onTimePct || 0,
+    deliveriesToday: d.deliveriesToday || 0,
+    lastLocation: d.lastLocation || null,
+  }));
 }
 
-// Get all orders with track numbers — flattening from live dispatch when available
+// Get ALL orders from live dispatch — NO MOCK FALLBACK
 function getAllOrders() {
-  if (STATE.live && STATE.live.dispatch && STATE.live.dispatch.orders.length) {
-    const drivers = STATE.live.dispatch.drivers || [];
-    const routes  = STATE.live.dispatch.routes  || [];
-    return STATE.live.dispatch.orders.map(o => {
-      const route = routes.find(r => r.id === o.routeId);
-      const driver = route ? drivers.find(d => d.id === route.driverId) : null;
-      return {
-        ...o,
-        driverName: driver ? driver.name : '—',
-        driverId: driver ? driver.id : null,
-        routeName: route ? route.name : '—',
-      };
-    });
-  }
-  // Mock orders
-  const couriers = getAllCouriers();
-  const clients = ['АЛЬФА-МАРКЕТ','Кафе Чиннор','Аптека №24','Корзинка','Хавас','Макро','PowerHouse','Riviera','БиоТест','Медикус'];
-  const out = [];
-  for (let i = 0; i < 64; i++) {
-    const drv = couriers[i % couriers.length];
-    const statuses = ['completed','progress','pending','issue'];
-    out.push({
-      id: 'ord_' + i, trackNo: 'IPST' + (10000 + i),
-      client: clients[i % clients.length] + (i % 3 ? '' : ' №' + i),
-      addr: 'ул. Демо-' + ((i*7) % 50 + 1) + ', д. ' + ((i*11) % 80 + 1),
-      lat: 41.3 + Math.sin(i)*0.05, lng: 69.27 + Math.cos(i)*0.07,
-      status: statuses[i % 4],
-      weightKg: Math.round(2 + Math.sin(i*1.3) * 30 + i*0.4),
-      sumUZS: Math.round(50000 + Math.sin(i*0.8)*180000 + i*4000),
-      eta: '0' + (8 + (i%10)) + ':' + (i*6 % 60).toString().padStart(2,'0'),
-      driverName: drv.name, driverId: drv.id,
-      routeName: 'Маршрут #' + ((i % 8) + 1),
-    });
-  }
-  return out;
+  if (!STATE.live || !STATE.live.dispatch || !Array.isArray(STATE.live.dispatch.orders)) return [];
+  const drivers = STATE.live.dispatch.drivers || [];
+  const routes  = STATE.live.dispatch.routes  || [];
+  return STATE.live.dispatch.orders.map(o => {
+    const route = routes.find(r => r.id === o.routeId);
+    const driver = route ? drivers.find(d => d.id === route.driverId) : null;
+    return {
+      ...o,
+      driverName: driver ? driver.name : '—',
+      driverId: driver ? driver.id : null,
+      routeName: route ? route.name : '—',
+      // Normalize weight field from various possible names
+      weightKg: Number(o.weightKg || o.weight || o.totalWeight || 0),
+      sumUZS:   Number(o.sumUZS || o.totalSum || o.codAmount || 0),
+    };
+  });
 }
 
 /* ============ PAGE: COURIER MAIN ============ */
