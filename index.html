@@ -4535,9 +4535,13 @@ function renderTeam() {
           <div class="t1"><span class="status-pulse ${bucket}"></span>${d.name || '—'}</div>
           <div class="t2">${d.phone || ''}${v ? ' · ' + v.plate : ''} · ${statTxt}</div>
         </div>
-        <div class="list-aside">
+        <div class="list-aside" style="text-align:right;">
           <div class="v" style="color:var(--accent);">${d.score}</div>
           <div style="font-size:10px; color:var(--text-muted);">★${d.rating||'—'} · ${d.onTimePct||0}% · ${d.deliveriesToday||0} дост.</div>
+          <div style="display:flex; gap:4px; margin-top:6px; justify-content:flex-end;">
+            <button class="btn" style="padding:3px 8px; font-size:10.5px; color:var(--success);" onclick="event.stopPropagation(); addBonusDialog('${d.id}', '${(d.name||'').replace(/'/g,'')}', 'courier', 'bonus')" title="Бонус">💰</button>
+            <button class="btn" style="padding:3px 8px; font-size:10.5px; color:var(--danger);" onclick="event.stopPropagation(); addBonusDialog('${d.id}', '${(d.name||'').replace(/'/g,'')}', 'courier', 'penalty')" title="Штраф">⚠</button>
+          </div>
         </div>
       `}));
     }
@@ -4566,15 +4570,20 @@ function renderTeam() {
       const [name, brs] = mgrList[i];
       const regions = Array.from(new Set(brs.map(b => b.regionKey).filter(Boolean)));
       const regionNames = regions.map(rk => (REGIONS.find(r => r.key === rk) || {}).name || rk).join(', ');
+      const mgrId = 'mgr:' + name.toLowerCase().replace(/\s+/g, '_');
       mgrCard.appendChild(el('div', { class: 'list-item', html: `
         <div class="list-icon" style="background:${i < 3 ? 'var(--warning-soft)' : 'var(--brand-glow)'}; color:${i < 3 ? 'var(--warning)' : 'var(--brand-2)'};">${i+1}</div>
         <div class="list-body">
           <div class="t1">${name}</div>
           <div class="t2">${regionNames || '—'}</div>
         </div>
-        <div class="list-aside">
+        <div class="list-aside" style="text-align:right;">
           <div class="v" style="color:var(--accent);">${brs.length}</div>
           <div style="font-size:10px; color:var(--text-muted);">${brs.length === 1 ? 'филиал' : 'филиалов'}</div>
+          <div style="display:flex; gap:4px; margin-top:6px; justify-content:flex-end;">
+            <button class="btn" style="padding:3px 8px; font-size:10.5px; color:var(--success);" onclick="event.stopPropagation(); addBonusDialog('${mgrId}', '${name.replace(/'/g,'')}', 'manager', 'bonus')" title="Бонус">💰</button>
+            <button class="btn" style="padding:3px 8px; font-size:10.5px; color:var(--danger);" onclick="event.stopPropagation(); addBonusDialog('${mgrId}', '${name.replace(/'/g,'')}', 'manager', 'penalty')" title="Штраф">⚠</button>
+          </div>
         </div>
       `}));
     }
@@ -4610,6 +4619,198 @@ function renderTeam() {
     p.appendChild(el('div', { class: 'card', style: 'padding:50px; text-align:center; color:var(--text-muted); font-size:13px;', html:
       'Нет данных о команде.<br><br>Подключите Dispatch для отображения курьеров или добавьте филиалы с менеджерами в PVZ.'
     }));
+  }
+
+  // === Бонусы и штрафы ===
+  const bonuses = live.bonuses || [];
+  const monthFilter = STATE.bonusMonth || new Date().toISOString().slice(0, 7);
+  const bonusesThisMonth = bonuses.filter(b => b.month === monthFilter && !b.revoked);
+  const totalBonus   = bonusesThisMonth.filter(b => b.type === 'bonus').reduce((s,b) => s + b.amount, 0);
+  const totalPenalty = bonusesThisMonth.filter(b => b.type === 'penalty').reduce((s,b) => s + b.amount, 0);
+
+  p.appendChild(el('div', { style: 'height:18px;' }));
+  p.appendChild(el('div', { class: 'section-title', html: `<span class="dot"></span>💰 Бонусы и штрафы <span class="count">${bonuses.length} записей</span>` }));
+
+  const bonusCard = el('div', { class: 'card' });
+  bonusCard.appendChild(el('div', { class: 'card-head', html: `
+    <div>
+      <div class="h">История начислений</div>
+      <div class="sub">Бонусы: <b style="color:var(--success);">+${fmt(totalBonus)} UZS</b> · Штрафы: <b style="color:var(--danger);">−${fmt(totalPenalty)} UZS</b> · Нетто: <b style="color:${totalBonus-totalPenalty>=0?'var(--success)':'var(--danger)'};">${totalBonus-totalPenalty>=0?'+':'−'}${fmt(Math.abs(totalBonus-totalPenalty))} UZS</b></div>
+    </div>
+    <div class="card-head-actions">
+      <input type="month" id="bonus-month" value="${monthFilter}" style="padding:7px 11px; border-radius:8px; background:var(--panel-2); border:1px solid var(--border); color:var(--text); font-size:12px;">
+      <button class="btn btn-primary" onclick="addBonusDialog()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        + Начислить
+      </button>
+    </div>
+  `}));
+
+  setTimeout(() => {
+    const inp = document.getElementById('bonus-month');
+    if (inp) inp.addEventListener('change', () => { STATE.bonusMonth = inp.value; renderPage(STATE.page); });
+  }, 30);
+
+  if (bonusesThisMonth.length === 0) {
+    bonusCard.appendChild(el('div', { style: 'padding:30px; text-align:center; color:var(--text-muted); font-size:12.5px;', html:
+      `За ${monthFilter} начислений нет. Нажмите «<b>+ Начислить</b>» чтобы добавить бонус или штраф.`
+    }));
+  } else {
+    const tbl = el('table', { class: 'table' });
+    tbl.innerHTML = `
+      <thead><tr><th>Дата</th><th>Сотрудник</th><th>Тип</th><th>Сумма</th><th>Причина</th><th>Кем</th><th></th></tr></thead>
+      <tbody>
+        ${bonusesThisMonth.map(b => `<tr>
+          <td style="font-family:JetBrains Mono; font-size:11px;">${new Date(b.createdAt).toLocaleDateString('ru-RU')}<br><span style="color:var(--text-muted);">${new Date(b.createdAt).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})}</span></td>
+          <td><b>${b.employeeName}</b><div style="font-size:10.5px; color:var(--text-muted); font-family:JetBrains Mono;">${b.employeeId}</div></td>
+          <td>${b.type === 'bonus' ? '<span class="pill success">💰 Бонус</span>' : '<span class="pill danger">⚠ Штраф</span>'}</td>
+          <td style="font-family:JetBrains Mono; font-weight:700; color:${b.type === 'bonus' ? 'var(--success)' : 'var(--danger)'};">${b.type === 'bonus' ? '+' : '−'}${fmt(b.amount)} UZS</td>
+          <td style="font-size:11.5px;">${b.reason || '—'}</td>
+          <td style="font-size:11px; color:var(--text-dim);">${b.createdByName || b.createdBy}</td>
+          <td><button class="btn" style="padding:4px 9px; font-size:11px; color:var(--danger);" onclick="revokeBonus('${b.id}')" title="Отменить">🗑</button></td>
+        </tr>`).join('')}
+      </tbody>
+    `;
+    bonusCard.appendChild(tbl);
+  }
+  p.appendChild(bonusCard);
+}
+
+/* ============ Bonus / penalty dialog ============ */
+function addBonusDialog(preselectedEmpId, preselectedEmpName, preselectedEmpType, preselectedType) {
+  const live = STATE.live || {};
+  const drivers   = (live.dispatch && live.dispatch.drivers) || [];
+  const branches  = live.branches || [];
+  const users     = live.users || [];
+
+  // Build employee select options
+  const courierOpts = drivers.map(d => `<option value="courier|${d.id}|${(d.name||'').replace(/"/g,'')}" ${preselectedEmpId === d.id ? 'selected' : ''}>🚴 ${d.name || d.id}${d.phone ? ' · '+d.phone : ''}</option>`).join('');
+  const mgrSet = new Set();
+  const mgrOpts = branches.filter(b => !b.closeDate && b.manager).map(b => {
+    const key = b.manager.trim();
+    if (mgrSet.has(key)) return '';
+    mgrSet.add(key);
+    const id = 'mgr:' + key.toLowerCase().replace(/\s+/g, '_');
+    return `<option value="manager|${id}|${key.replace(/"/g,'')}" ${preselectedEmpId === id ? 'selected' : ''}>🏢 ${key}</option>`;
+  }).join('');
+  const userOpts = users.map(u => `<option value="user|${u.id}|${(u.fullName||u.login||'').replace(/"/g,'')}" ${preselectedEmpId === u.id ? 'selected' : ''}>👤 ${u.fullName || u.login} (${u.role})</option>`).join('');
+
+  const html = `
+    <h3>💰 Бонус / штраф сотруднику</h3>
+    <p class="sub" style="font-size:12.5px; color:var(--text-dim);">Начисление будет сохранено в системе с пометкой кто и когда добавил.</p>
+
+    <div class="form-row">
+      <label>Сотрудник *</label>
+      <select id="bn-employee">
+        <option value="">— Выберите сотрудника —</option>
+        ${courierOpts ? '<optgroup label="Курьеры и водители">' + courierOpts + '</optgroup>' : ''}
+        ${mgrOpts ? '<optgroup label="Менеджеры ПВЗ">' + mgrOpts + '</optgroup>' : ''}
+        ${userOpts ? '<optgroup label="Системные пользователи">' + userOpts + '</optgroup>' : ''}
+      </select>
+    </div>
+
+    <div class="form-row">
+      <label>Тип начисления *</label>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+        <label style="display:flex; align-items:center; gap:8px; padding:12px; background:var(--success-soft); border:2px solid ${preselectedType !== 'penalty' ? 'var(--success)' : 'var(--border)'}; border-radius:10px; cursor:pointer;" id="bn-type-bonus-lbl">
+          <input type="radio" name="bn-type" value="bonus" ${preselectedType !== 'penalty' ? 'checked' : ''}>
+          <div>
+            <div style="font-weight:700; color:var(--success);">💰 Бонус</div>
+            <div style="font-size:10.5px; color:var(--text-muted);">Премия / поощрение</div>
+          </div>
+        </label>
+        <label style="display:flex; align-items:center; gap:8px; padding:12px; background:var(--danger-soft); border:2px solid ${preselectedType === 'penalty' ? 'var(--danger)' : 'var(--border)'}; border-radius:10px; cursor:pointer;" id="bn-type-penalty-lbl">
+          <input type="radio" name="bn-type" value="penalty" ${preselectedType === 'penalty' ? 'checked' : ''}>
+          <div>
+            <div style="font-weight:700; color:var(--danger);">⚠ Штраф</div>
+            <div style="font-size:10.5px; color:var(--text-muted);">Удержание / взыскание</div>
+          </div>
+        </label>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <label>Сумма (UZS) *</label>
+      <input type="number" id="bn-amount" placeholder="например: 500000" min="0" step="10000">
+      <div style="display:flex; gap:4px; margin-top:6px; flex-wrap:wrap;">
+        ${[50000, 100000, 200000, 500000, 1000000].map(v => `<button type="button" class="chip" onclick="document.getElementById('bn-amount').value=${v}">${fmt(v)}</button>`).join('')}
+      </div>
+    </div>
+
+    <div class="form-row">
+      <label>Причина *</label>
+      <textarea id="bn-reason" rows="3" style="width:100%; padding:10px 12px; border-radius:10px; background:var(--panel-2); border:1px solid var(--border); color:var(--text); font-size:13px; font-family:inherit; resize:vertical;" placeholder="Например: «За перевыполнение плана на 130% в апреле» или «Опоздание 3 раза за неделю»"></textarea>
+    </div>
+
+    <div class="form-row">
+      <label>Месяц</label>
+      <input type="month" id="bn-month" value="${new Date().toISOString().slice(0,7)}">
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Отмена</button>
+      <button class="btn btn-primary" onclick="submitBonus()">✓ Начислить</button>
+    </div>
+  `;
+  showModal(html);
+
+  // Visual feedback on radio change
+  setTimeout(() => {
+    document.querySelectorAll('input[name="bn-type"]').forEach(r => {
+      r.addEventListener('change', () => {
+        document.getElementById('bn-type-bonus-lbl').style.borderColor = r.value === 'bonus' && r.checked ? 'var(--success)' : 'var(--border)';
+        document.getElementById('bn-type-penalty-lbl').style.borderColor = r.value === 'penalty' && r.checked ? 'var(--danger)' : 'var(--border)';
+      });
+    });
+  }, 30);
+}
+
+async function submitBonus() {
+  const empVal = document.getElementById('bn-employee')?.value || '';
+  if (!empVal) { toast('Выберите сотрудника', 'warning'); return; }
+  const [employeeType, employeeId, employeeName] = empVal.split('|');
+  const type   = document.querySelector('input[name="bn-type"]:checked')?.value || 'bonus';
+  const amount = Number(document.getElementById('bn-amount')?.value) || 0;
+  const reason = (document.getElementById('bn-reason')?.value || '').trim();
+  const month  = document.getElementById('bn-month')?.value || new Date().toISOString().slice(0,7);
+
+  if (amount <= 0) { toast('Введите сумму больше 0', 'warning'); return; }
+  if (!reason)     { toast('Укажите причину', 'warning'); return; }
+
+  try {
+    const r = await fetch('/api/bonuses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + STATE.token },
+      body: JSON.stringify({ employeeId, employeeName, employeeType, type, amount, reason, month }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.message || j.error);
+    toast(`✓ ${type === 'bonus' ? 'Бонус начислен' : 'Штраф наложен'}: ${employeeName} · ${type === 'bonus' ? '+' : '−'}${fmt(amount)} UZS`, 'success');
+    closeModal();
+    await IPostAPI.refreshAll();
+    renderPage(STATE.page);
+  } catch (e) {
+    toast('Ошибка: ' + e.message, 'danger');
+  }
+}
+
+async function revokeBonus(id) {
+  const bonus = (STATE.live?.bonuses || []).find(b => b.id === id);
+  if (!bonus) return;
+  if (!confirm(`Отменить ${bonus.type === 'bonus' ? 'бонус' : 'штраф'} ${bonus.amount} UZS для "${bonus.employeeName}"?\n\nПричина: ${bonus.reason}\n\nДействие необратимо.`)) return;
+  try {
+    const r = await fetch('/api/bonuses', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + STATE.token },
+      body: JSON.stringify({ id }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.message || j.error);
+    toast('✓ Запись удалена', 'success');
+    await IPostAPI.refreshAll();
+    renderPage(STATE.page);
+  } catch (e) {
+    toast('Ошибка: ' + e.message, 'danger');
   }
 }
 

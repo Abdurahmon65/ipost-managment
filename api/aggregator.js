@@ -16,6 +16,14 @@ async function getPlans() {
   } catch { return []; }
 }
 
+async function getBonuses() {
+  try {
+    const raw = await redis.get('data:bonuses');
+    if (!raw) return [];
+    return typeof raw === 'string' ? JSON.parse(raw) : raw;
+  } catch { return []; }
+}
+
 const DISPATCH_URL = process.env.DISPATCH_URL || 'http://localhost:8080';
 const DISPATCH_TIMEOUT_MS = 2500;
 
@@ -129,11 +137,12 @@ export default async function handler(req, res) {
     if (!ctx) return;
     if (req.method !== 'GET') return res.status(405).json({ error: 'method_not_allowed' });
 
-    const [branches, records, users, plans, dispatch] = await Promise.all([
+    const [branches, records, users, plans, bonuses, dispatch] = await Promise.all([
       getBranches().catch(() => []),
       getRecords().catch(() => []),
       getUsers().catch(() => []),
       getPlans().catch(() => []),
+      getBonuses().catch(() => []),
       loadDispatch(),
     ]);
 
@@ -162,6 +171,7 @@ export default async function handler(req, res) {
       branches: branches || [],
       branchesTotal: (branches || []).length,
       plans: plans || [],
+      bonuses: bonuses || [],
       isDirector: true,    // Любой залогиненный в этот директор-центр имеет полные права.
       users: (users || []).map(safeUser),
       records: (records || []).slice(0, 100),
