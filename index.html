@@ -1779,15 +1779,6 @@ const TIMELINE = [
   { t: '10:55', type: 'success', title: 'Новый клиент B2B',          desc: '«Texnomart» подписал контракт на 8000 отправлений/мес' },
 ];
 
-const TEAM_KPI = [
-  { dept: 'Курьеры',          count: 184, perf: 92, salary: 312 },
-  { dept: 'Операторы ПВЗ',    count: 142, perf: 88, salary: 246 },
-  { dept: 'Водители',         count:  68, perf: 85, salary: 198 },
-  { dept: 'Склад',            count:  54, perf: 81, salary: 142 },
-  { dept: 'Менеджмент',       count:  22, perf: 94, salary: 168 },
-  { dept: 'IT и поддержка',   count:  18, perf: 90, salary:  98 },
-];
-
 const CUSTOMERS = [
   { name: 'Uzum Market',     type: 'B2B',  orders: 18420, ltv: 2840, status: 'platinum' },
   { name: 'Texnomart',       type: 'B2B',  orders: 12180, ltv: 1920, status: 'platinum' },
@@ -4425,67 +4416,201 @@ function renderTeam() {
   const p = el('div', { class: 'page active' });
   c.appendChild(p);
 
-  const total = TEAM_KPI.reduce((a,b)=>a+b.count,0);
+  // === Real data sources ===
+  const live = STATE.live || {};
+  const drivers   = (live.dispatch && live.dispatch.drivers) || [];
+  const vehicles  = (live.dispatch && live.dispatch.vehicles) || [];
+  const branches  = live.branches || [];
+  const users     = live.users || [];
+
+  // Build groups from REAL data
+  const couriers      = drivers;
+  const branchMgrs    = Array.from(new Set(
+    branches.filter(b => !b.closeDate && b.manager).map(b => b.manager.trim())
+  )).filter(Boolean);
+  const systemUsers   = users;
+  const onRouteCount  = drivers.filter(d => d.status === 'on_route').length;
+  const activeMgr     = branchMgrs.length;
+
+  // KPI
+  const totalPeople = couriers.length + branchMgrs.length + systemUsers.length;
+  const avgOnTime = couriers.length
+    ? Math.round(couriers.reduce((s,d) => s + (Number(d.onTimePct)||0), 0) / couriers.length)
+    : null;
+  const avgRating = couriers.length
+    ? (couriers.reduce((s,d) => s + (Number(d.rating)||0), 0) / couriers.length).toFixed(2)
+    : null;
+  const totalDeliveries = couriers.reduce((s,d) => s + (Number(d.deliveriesToday)||0), 0);
+
+  // Cost (ФОТ) from cost config
+  const costs = (typeof calculateCosts === 'function') ? calculateCosts('all') : null;
+  const totalSalary = costs ? (costs.courier.salaries + costs.pvz.salaries) : 0;
+
   const kg = el('div', { class: 'kpi-grid' });
   [
-    { l: 'Всего сотрудников',  v: fmt(total),  u: '',          d: '+12 за мес', dir: 'up',   icon: 'team',  kind: '' },
-    { l: 'Средняя эффект.',    v: '88.4',      u: '%',         d: '+2.1%',      dir: 'up',   icon: 'star',  kind: 'kpi-success' },
-    { l: 'Текучесть мес.',     v: '3.2',       u: '%',         d: '−0.4%',      dir: 'up',   icon: 'alert', kind: 'kpi-warning' },
-    { l: 'ФОТ за месяц',       v: '1.16',      u: 'млрд UZS',  d: '+4.8%',      dir: 'down', icon: 'money', kind: '' },
+    { l: 'Всего сотрудников',  v: fmt(totalPeople),  u: '',
+                                d: `${couriers.length} курьеров, ${branchMgrs.length} менеджеров ПВЗ`,
+                                icon: 'team',  kind: '' },
+    { l: 'Курьеры на маршруте',v: fmt(onRouteCount), u: '/' + couriers.length,
+                                d: couriers.length ? Math.round(onRouteCount/couriers.length*100) + '%' : 'нет данных',
+                                icon: 'logistics', kind: 'kpi-success' },
+    { l: 'Средн. рейтинг',     v: avgRating != null ? '★ ' + avgRating : '—', u: '/5',
+                                d: avgOnTime != null ? avgOnTime + '% в срок' : 'нет данных',
+                                icon: 'star',  kind: 'kpi-purple' },
+    { l: 'ФОТ месяц',          v: costs ? fmtMoney(totalSalary/1e6) : '—',
+                                u: 'млн UZS',
+                                d: costs ? `курьеры + менеджеры` : 'нет конфига',
+                                icon: 'money', kind: 'kpi-warning' },
   ].forEach(k => kg.appendChild(el('div', { class: 'kpi ' + k.kind, html: `
     <div class="kpi-head"><div class="kpi-label">${k.l}</div><div class="kpi-icon">${ICONS[k.icon]}</div></div>
     <div class="kpi-value">${k.v}<span class="unit">${k.u}</span></div>
-    <div class="kpi-foot"><span class="delta ${k.dir}">${k.dir === 'up' ? '▲' : '▼'} ${k.d}</span></div>
+    <div class="kpi-foot"><span class="delta up">▲</span> ${k.d}</div>
   `})));
   p.appendChild(kg);
 
-  // Departments
+  // === Departments from RBAC catalog ===
+  const departments = STATE.live?.permissions?.departments;
+  if (Array.isArray(departments) && departments.length === 0 && systemUsers.length > 0) {
+    // Build department stats from users only
+  }
+
+  p.appendChild(el('div', { class: 'section-title', html: `<span class="dot"></span>Распределение по ролям` }));
+
+  const groups = [
+    { name: 'Курьеры и водители', count: couriers.length, source: 'Dispatch · drivers',
+      salary: costs ? costs.courier.salaries/1e6 : null,
+      perf: avgOnTime, color: 'success', icon: 'logistics' },
+    { name: 'Менеджеры ПВЗ',      count: branchMgrs.length, source: 'PVZ · branches[].manager',
+      salary: costs ? costs.pvz.salaries/1e6 : null,
+      perf: branches.length ? Math.round(branches.filter(b=>!b.closeDate).length/branches.length*100) : null,
+      color: 'brand', icon: 'branches' },
+    { name: 'Пользователи системы', count: systemUsers.length, source: 'PVZ · users (Redis)',
+      salary: null, perf: null, color: 'purple', icon: 'team' },
+  ];
+
   const row = el('div', { class: 'row r-3' });
-  for (const d of TEAM_KPI) {
+  for (const d of groups) {
+    const perfPct = d.perf != null ? d.perf : 0;
     row.appendChild(el('div', { class: 'card', html: `
       <div class="card-head">
-        <div><div class="h">${d.dept}</div><div class="sub">${d.count} человек</div></div>
-        <span class="pill ${d.perf > 90 ? 'success' : d.perf > 85 ? 'brand' : 'warning'}">${d.perf}%</span>
+        <div>
+          <div class="h">${d.name}</div>
+          <div class="sub">${d.count} ${d.count === 1 ? 'человек' : 'чел.'}</div>
+        </div>
+        ${d.perf != null ? `<span class="pill ${d.perf > 80 ? 'success' : d.perf > 60 ? 'brand' : 'warning'}">${d.perf}%</span>` : '<span class="pill muted">—</span>'}
       </div>
+      ${d.salary != null ? `
       <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:8px;">
-        <span style="color:var(--text-dim);">ФОТ месяц</span>
-        <span style="font-family:JetBrains Mono; font-weight:700; color:var(--accent);">${d.salary} млн UZS</span>
-      </div>
-      <div style="font-size:11px; color:var(--text-dim); margin-bottom:6px;">Эффективность</div>
-      <div class="mini-bar ${d.perf > 90 ? 'success' : ''}"><span style="width:${d.perf}%"></span></div>
+        <span style="color:var(--text-dim);">ФОТ месяц (оценка)</span>
+        <span style="font-family:JetBrains Mono; font-weight:700; color:var(--accent);">${fmtMoney(d.salary)} млн UZS</span>
+      </div>` : ''}
+      <div style="font-size:10.5px; color:var(--text-muted); margin-bottom:4px; font-family:JetBrains Mono;">${d.source}</div>
+      ${d.perf != null ? `<div class="mini-bar ${d.perf > 80 ? 'success' : ''}" style="margin-top:6px;"><span style="width:${perfPct}%"></span></div>` : ''}
     `}));
   }
   p.appendChild(row);
-  p.appendChild(el('div', { style: 'height:14px;' }));
+  p.appendChild(el('div', { style: 'height:18px;' }));
 
-  // Top employees
-  const top = el('div', { class: 'card' });
-  top.appendChild(el('div', { class: 'card-head', html: `<div><div class="h">Сотрудник месяца — ТОП-10</div><div class="sub">По интегральной оценке</div></div>`}));
-  const emp = [
-    { n: 'Олимов Шерзод',    role: 'Курьер',         score: 98.4, dept: 'Доставка' },
-    { n: 'Усманова Малика',  role: 'Менеджер ПВЗ',   score: 97.2, dept: 'Юнусабад' },
-    { n: 'Юсупов Алишер',    role: 'Водитель',       score: 96.8, dept: 'Самарканд' },
-    { n: 'Каримов Бахтиёр',  role: 'Водитель',       score: 95.6, dept: 'Ташкент' },
-    { n: 'Назарова Ширин',   role: 'Менеджер ПВЗ',   score: 94.4, dept: 'Мирабад' },
-    { n: 'Бекмуратов Дилшод',role: 'Регион. менедж.',score: 93.8, dept: 'Самарканд' },
-    { n: 'Рахимов Хасан',    role: 'Оператор',       score: 92.5, dept: 'Андижан' },
-    { n: 'Турсунова Зилола', role: 'Менеджер ПВЗ',   score: 91.8, dept: 'Бухара' },
-  ];
-  for (let i = 0; i < emp.length; i++) {
-    const e = emp[i];
-    top.appendChild(el('div', { class: 'list-item', html: `
-      <div class="list-icon" style="background:${i < 3 ? 'var(--warning-soft)' : 'var(--accent-soft)'}; color:${i < 3 ? 'var(--warning)' : 'var(--accent)'};">${i+1}</div>
-      <div class="list-body">
-        <div class="t1">${e.n}</div>
-        <div class="t2">${e.role} · ${e.dept}</div>
-      </div>
-      <div class="list-aside">
-        <div class="v" style="color:var(--accent);">${e.score}</div>
-        <span style="font-size:10px; color:var(--text-muted);">score</span>
-      </div>
+  // === ТОП курьеры (real data) ===
+  if (couriers.length > 0) {
+    p.appendChild(el('div', { class: 'section-title', html: `<span class="dot"></span>ТОП курьеры <span class="count">из ${couriers.length} · Dispatch live</span>` }));
+    // Score: rating × 10 + onTimePct × 0.5 + deliveriesToday × 1
+    const scored = couriers.map(d => ({
+      ...d,
+      score: Math.round((Number(d.rating)||0) * 10 + (Number(d.onTimePct)||0) * 0.5 + (Number(d.deliveriesToday)||0) * 1),
+    })).sort((a,b) => b.score - a.score).slice(0, 10);
+
+    const topC = el('div', { class: 'card' });
+    topC.appendChild(el('div', { class: 'card-head', html: `<div><div class="h">Рейтинг курьеров</div><div class="sub">★ × 10 + % в срок × 0.5 + доставки сегодня</div></div>
+      <button class="chip" onclick="goTo('courier-status')">Все курьеры →</button>
     `}));
+    for (let i = 0; i < scored.length; i++) {
+      const d = scored[i];
+      const v = vehicles.find(x => x.driverId === d.id);
+      const bucket = d.status === 'on_route' ? 'on-route' : d.status === 'ready' || d.status === 'idle' ? 'online' : d.status === 'issue' ? 'not-working' : 'offline';
+      const statTxt = d.status === 'on_route' ? 'На маршруте' : d.status === 'ready' ? 'Готов' : d.status === 'idle' ? 'Перерыв' : d.status === 'issue' ? 'Проблема' : d.status === 'offline' ? 'Оффлайн' : d.status;
+      topC.appendChild(el('div', { class: 'list-item', html: `
+        <div class="list-icon" style="background:${i < 3 ? 'var(--warning-soft)' : 'var(--accent-soft)'}; color:${i < 3 ? 'var(--warning)' : 'var(--accent)'};">${i+1}</div>
+        <div class="list-body">
+          <div class="t1"><span class="status-pulse ${bucket}"></span>${d.name || '—'}</div>
+          <div class="t2">${d.phone || ''}${v ? ' · ' + v.plate : ''} · ${statTxt}</div>
+        </div>
+        <div class="list-aside">
+          <div class="v" style="color:var(--accent);">${d.score}</div>
+          <div style="font-size:10px; color:var(--text-muted);">★${d.rating||'—'} · ${d.onTimePct||0}% · ${d.deliveriesToday||0} дост.</div>
+        </div>
+      `}));
+    }
+    p.appendChild(topC);
+    p.appendChild(el('div', { style: 'height:14px;' }));
   }
-  p.appendChild(top);
+
+  // === Менеджеры ПВЗ (real data) ===
+  if (branchMgrs.length > 0) {
+    // Group branches by manager
+    const byMgr = {};
+    for (const b of branches) {
+      if (b.closeDate || !b.manager) continue;
+      const name = b.manager.trim();
+      if (!byMgr[name]) byMgr[name] = [];
+      byMgr[name].push(b);
+    }
+    const mgrList = Object.entries(byMgr).sort((a,b) => b[1].length - a[1].length);
+
+    p.appendChild(el('div', { class: 'section-title', html: `<span class="dot"></span>Менеджеры ПВЗ <span class="count">${mgrList.length} человек · из PVZ Redis</span>` }));
+    const mgrCard = el('div', { class: 'card' });
+    mgrCard.appendChild(el('div', { class: 'card-head', html: `<div><div class="h">По количеству филиалов</div><div class="sub">ТОП-10 менеджеров</div></div>
+      <button class="chip" onclick="goTo('branches')">Все филиалы →</button>
+    `}));
+    for (let i = 0; i < Math.min(10, mgrList.length); i++) {
+      const [name, brs] = mgrList[i];
+      const regions = Array.from(new Set(brs.map(b => b.regionKey).filter(Boolean)));
+      const regionNames = regions.map(rk => (REGIONS.find(r => r.key === rk) || {}).name || rk).join(', ');
+      mgrCard.appendChild(el('div', { class: 'list-item', html: `
+        <div class="list-icon" style="background:${i < 3 ? 'var(--warning-soft)' : 'var(--brand-glow)'}; color:${i < 3 ? 'var(--warning)' : 'var(--brand-2)'};">${i+1}</div>
+        <div class="list-body">
+          <div class="t1">${name}</div>
+          <div class="t2">${regionNames || '—'}</div>
+        </div>
+        <div class="list-aside">
+          <div class="v" style="color:var(--accent);">${brs.length}</div>
+          <div style="font-size:10px; color:var(--text-muted);">${brs.length === 1 ? 'филиал' : 'филиалов'}</div>
+        </div>
+      `}));
+    }
+    p.appendChild(mgrCard);
+    p.appendChild(el('div', { style: 'height:14px;' }));
+  }
+
+  // === Системные пользователи ===
+  if (systemUsers.length > 0) {
+    p.appendChild(el('div', { class: 'section-title', html: `<span class="dot"></span>Пользователи системы <span class="count">${systemUsers.length} аккаунтов</span>` }));
+    const sysCard = el('div', { class: 'card' });
+    sysCard.appendChild(el('div', { class: 'card-head', html: `<div><div class="h">Аккаунты с доступом к системе</div><div class="sub">Из PVZ Redis</div></div>
+      <button class="chip" onclick="goTo('access')">Управление →</button>
+    `}));
+    const tbl = el('table', { class: 'table' });
+    tbl.innerHTML = `
+      <thead><tr><th>Логин</th><th>ФИО</th><th>Роль</th><th>Email</th><th>Телефон</th></tr></thead>
+      <tbody>
+        ${systemUsers.map(u => `<tr>
+          <td><b>${u.login || '—'}</b></td>
+          <td>${u.fullName || '—'}</td>
+          <td><span class="pill ${u.role === 'director' ? 'purple' : u.role === 'manager' ? 'brand' : 'muted'}">${u.role || '—'}</span></td>
+          <td style="font-size:11px;">${u.email || '—'}</td>
+          <td style="font-family:JetBrains Mono; font-size:11px;">${u.phone || '—'}</td>
+        </tr>`).join('')}
+      </tbody>
+    `;
+    sysCard.appendChild(tbl);
+    p.appendChild(sysCard);
+  }
+
+  if (totalPeople === 0) {
+    p.appendChild(el('div', { class: 'card', style: 'padding:50px; text-align:center; color:var(--text-muted); font-size:13px;', html:
+      'Нет данных о команде.<br><br>Подключите Dispatch для отображения курьеров или добавьте филиалы с менеджерами в PVZ.'
+    }));
+  }
 }
 
 /* ==================== PAGE: CUSTOMERS ==================== */
