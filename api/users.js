@@ -25,7 +25,7 @@ export default async function handler(req, res) {
 
     // CREATE
     if (req.method === 'POST') {
-      const { fullName, phone, email, login, password, role } = req.body || {};
+      const { fullName, phone, email, login, password, role, departments } = req.body || {};
       if (!fullName || !phone || !email || !login || !password || !role) {
         return res.status(400).json({ error: 'missing_fields' });
       }
@@ -47,7 +47,8 @@ export default async function handler(req, res) {
         login: loginLower,
         salt,
         passwordHash: hashPassword(password, salt),
-        role: role === 'manager' ? 'manager' : 'operator',
+        role: role === 'manager' ? 'manager' : (role === 'director' ? 'director' : 'operator'),
+        departments: Array.isArray(departments) ? departments.map(d => String(d).trim()).filter(Boolean) : [],
         createdAt: Date.now(),
       };
       users.unshift(newUser);
@@ -66,7 +67,7 @@ export default async function handler(req, res) {
 
     // UPDATE
     if (req.method === 'PUT') {
-      const { id, fullName, phone, email, login, password, role } = req.body || {};
+      const { id, fullName, phone, email, login, password, role, departments } = req.body || {};
       if (!id) return res.status(400).json({ error: 'missing_id' });
       const users = await getUsers();
       const idx = users.findIndex(u => u.id === id);
@@ -86,7 +87,8 @@ export default async function handler(req, res) {
       if (phone != null) target.phone = String(phone).trim();
       if (emailLower) target.email = emailLower;
       if (loginLower) target.login = loginLower;
-      if (role) target.role = role === 'manager' ? 'manager' : 'operator';
+      if (role) target.role = role === 'manager' ? 'manager' : (role === 'director' ? 'director' : 'operator');
+      if (Array.isArray(departments)) target.departments = departments.map(d => String(d).trim()).filter(Boolean);
       if (password) {
         // Allow changing own password regardless; allow changing others only as manager (already enforced)
         const salt = generateSalt();

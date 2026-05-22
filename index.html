@@ -742,6 +742,13 @@
     font-family: 'JetBrains Mono', monospace;
   }
 
+  /* MAP REGION SIDEBAR */
+  .r-item:hover {
+    background: var(--panel-3) !important;
+    border-color: var(--accent) !important;
+    transform: translateX(2px);
+  }
+
   /* ==================== BANNER GRID (branch cards) ==================== */
   .banner-grid {
     display: grid;
@@ -1364,6 +1371,8 @@ const I18N = {
     'menu.branches':   'Филиалы',
     'menu.map':        'Карта сети',
     'menu.plans':      'Планы ПВЗ',
+    'menu.scout':      'AI-Скаут локаций',
+    'menu.access':     'Доступы и отделы',
     'menu.finance':    'Финансы',
     'menu.team':       'Команда',
     'menu.reports':    'Отчёты',
@@ -1412,6 +1421,8 @@ const I18N = {
     'menu.branches':   'Branches',
     'menu.map':        'Network map',
     'menu.plans':      'PVZ Plans',
+    'menu.scout':      'AI Location Scout',
+    'menu.access':     'Access & Departments',
     'menu.finance':    'Finance',
     'menu.team':       'Team',
     'menu.reports':    'Reports',
@@ -1457,6 +1468,8 @@ const I18N = {
     'menu.branches':   'Filiallar',
     'menu.map':        'Tarmoq xaritasi',
     'menu.plans':      'PVZ Rejalari',
+    'menu.scout':      'AI Joylashuv Skauti',
+    'menu.access':     'Kirish va boʻlimlar',
     'menu.finance':    'Moliya',
     'menu.team':       'Jamoa',
     'menu.reports':    'Hisobotlar',
@@ -1653,6 +1666,7 @@ const NAV_GROUPS = [
     items: [
       { id: 'branches', labelKey: 'menu.branches', icon: 'branches' },
       { id: 'plans',    labelKey: 'menu.plans',    icon: 'reports', badge: 'AI' },
+      { id: 'scout',    labelKey: 'menu.scout',    icon: 'map',     badge: 'AI' },
       { id: 'map',      labelKey: 'menu.map',      icon: 'map' },
     ]
   },
@@ -1662,6 +1676,7 @@ const NAV_GROUPS = [
       { id: 'finance',  labelKey: 'menu.finance',  icon: 'finance' },
       { id: 'team',     labelKey: 'menu.team',     icon: 'team' },
       { id: 'reports',  labelKey: 'menu.reports',  icon: 'reports' },
+      { id: 'access',   labelKey: 'menu.access',   icon: 'team' },
       { id: 'settings', labelKey: 'menu.settings', icon: 'settings' },
     ]
   }
@@ -1688,6 +1703,8 @@ const PAGE_META = {
   'courier-weight': { title: '🚴 Вес и груз',           sub: 'Аналитика по весу отправлений' },
   'courier-status': { title: '🚴 Статусы курьеров',     sub: 'На маршруте · онлайн · оффлайн · не работает' },
   plans:            { title: '📅 Планы ПВЗ',            sub: 'AI-генерация + утверждение директором (lock-режим)' },
+  scout:            { title: '🎯 AI-Скаут локаций',       sub: 'Подбор лучших мест для открытия новых ПВЗ' },
+  access:           { title: '🔐 Доступы и отделы',       sub: 'RBAC: управление пользователями и правами по отделам' },
 };
 
 /* ==================== MOCK DATA (LOGISTICS DOMAIN) ==================== */
@@ -2110,6 +2127,18 @@ function exportReport() {
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
+/* ==================== RBAC HELPERS (frontend) ==================== */
+function canSeePage(pageId) {
+  const perms = STATE.live && STATE.live.permissions;
+  if (!perms || perms.all === true || perms.pages === '*') return true;
+  return Array.isArray(perms.pages) && perms.pages.includes(pageId);
+}
+function canSeeScope(scope) {
+  const perms = STATE.live && STATE.live.permissions;
+  if (!perms || perms.all === true || perms.scopes === '*') return true;
+  return Array.isArray(perms.scopes) && perms.scopes.includes(scope);
+}
+
 /* ==================== RENDER NAV ==================== */
 function renderNav() {
   const nav = $('#nav');
@@ -2117,6 +2146,9 @@ function renderNav() {
   const collapsed = JSON.parse(localStorage.getItem('ipost-go-nav-collapsed') || '{}');
   for (let gi = 0; gi < NAV_GROUPS.length; gi++) {
     const group = NAV_GROUPS[gi];
+    // RBAC: filter items by permissions
+    const visibleItems = group.items.filter(it => canSeePage(it.id));
+    if (visibleItems.length === 0) continue;
     const isCollapsed = collapsed[gi] === true || (group.open === false && collapsed[gi] !== false);
     const groupEl = el('div', { class: 'nav-group' + (isCollapsed ? ' collapsed' : '') });
 
@@ -2134,7 +2166,7 @@ function renderNav() {
     groupEl.appendChild(toggle);
 
     const itemsWrap = el('div', { class: 'nav-group-items' });
-    for (const item of group.items) {
+    for (const item of visibleItems) {
       const label = item.labelKey ? t(item.labelKey) : (item.label || '');
       const btn = el('button', {
         class: 'nav-item' + (STATE.page === item.id ? ' active' : ''),
@@ -2159,6 +2191,11 @@ function toggleSidebar(force) {
 }
 
 function goTo(page) {
+  // RBAC: block direct navigation to forbidden pages
+  if (!canSeePage(page)) {
+    toast('Раздел недоступен для вашего отдела', 'warning');
+    page = 'home';
+  }
   STATE.page = page;
   const meta = PAGE_META[page] || { title: page, sub: '' };
   $('#page-title').textContent = meta.title;
@@ -3453,51 +3490,215 @@ function renderAnalyticsLogistics(p) {
 }
 
 /* ==================== PAGE: MAP ==================== */
-function renderMap() {
+let __regionsGeoJSON = null;
+let __mapInst2 = null;
+let __regionsLayer = null;
+let __markersLayer = null;
+
+async function renderMap() {
   const c = $('#content');
   c.innerHTML = '';
   const p = el('div', { class: 'page active' });
   c.appendChild(p);
 
-  const card = el('div', { class: 'card' });
-  card.appendChild(el('div', { class: 'card-head', html: `
-    <div><div class="h">Полная карта сети iPost GO</div><div class="sub">${REGIONS.length} регионов · ${REGIONS.reduce((a,b)=>a+b.branches,0)} филиалов</div></div>
-    <div class="card-head-actions">
-      <span class="chip active">Все</span>
-      <span class="chip">Топ-10</span>
-      <span class="chip">Проблемные</span>
-      <span class="chip">Новые</span>
+  const liveRegions  = (STATE.live && STATE.live.regions)  || [];
+  const liveBranches = (STATE.live && STATE.live.branches) || [];
+
+  // Layout: sidebar + map
+  const layout = el('div', { style: 'display:grid; grid-template-columns: 280px 1fr; gap:14px; height: calc(100vh - 180px); min-height:520px;' });
+
+  // === Sidebar with region list ===
+  const aside = el('aside', { class: 'card', style: 'overflow-y:auto; padding:14px;' });
+  aside.innerHTML = `
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+      <div style="font-weight:700; font-size:14px;">Регионы</div>
+      <button class="chip" id="map-reset" title="Показать всю страну">Все</button>
     </div>
-  `}));
-  card.appendChild(el('div', { id: 'full-map' }));
-  p.appendChild(card);
+    <div id="map-region-list" style="display:flex; flex-direction:column; gap:6px;">
+      ${liveRegions.length === 0
+        ? '<div style="padding:20px; text-align:center; color:var(--text-muted); font-size:12px;">Нет данных по регионам</div>'
+        : liveRegions.map(r => `
+            <button class="r-item" data-key="${r.key}" style="
+              display:flex; align-items:center; gap:10px; padding:10px 12px;
+              border-radius:10px; background:var(--panel-2); border:1px solid var(--border);
+              cursor:pointer; transition:all 0.15s; text-align:left; font-family:inherit;
+            ">
+              <div style="width:30px; height:30px; border-radius:8px; background:linear-gradient(135deg,var(--brand),var(--brand-deep)); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:13px;">${(r.name||'?')[0]}</div>
+              <div style="flex:1; min-width:0;">
+                <div style="font-weight:600; font-size:12.5px; color:var(--text);">${r.name}</div>
+                <div style="font-size:10.5px; color:var(--text-muted);">${r.branches} ПВЗ · ${r.active} актив.</div>
+              </div>
+              <div style="font-family:JetBrains Mono; font-weight:700; font-size:14px; color:var(--accent);">${r.branches}</div>
+            </button>
+          `).join('')
+      }
+    </div>
+  `;
+  layout.appendChild(aside);
 
-  // Region cards below
-  p.appendChild(el('div', { style: 'height:14px;' }));
-  const grid = el('div', { class: 'row r-4' });
-  for (const r of REGIONS.slice(0, 8)) {
-    grid.appendChild(el('div', { class: 'card', html: `
-      <div style="display:flex; align-items:center; gap:10px;">
-        <div class="user-avatar" style="border-radius:10px;">${r.name[0]}</div>
-        <div>
-          <div style="font-weight:700; font-size:13px;">${r.name}</div>
-          <div style="font-size:11px; color:var(--text-muted);">${r.branches} филиалов</div>
-        </div>
+  // === Main map ===
+  const mapCard = el('div', { class: 'card', style: 'padding:0; overflow:hidden; display:flex; flex-direction:column;' });
+  mapCard.innerHTML = `
+    <div class="card-head" style="padding:14px 16px; margin-bottom:0; border-bottom:1px solid var(--border);">
+      <div>
+        <div class="h">Карта сети iPost GO</div>
+        <div class="sub" id="map-status">${liveRegions.length} регионов · ${liveBranches.length} филиалов · кликните регион для зума</div>
       </div>
-      <div style="display:flex; justify-content:space-between; margin-top:12px; font-size:11.5px;">
-        <span style="color:var(--text-dim);">Заказы</span>
-        <span style="font-family:JetBrains Mono; font-weight:700;">${fmt(r.orders)}</span>
+      <div class="card-head-actions">
+        <button class="chip active" id="layer-all">Все ПВЗ</button>
+        <button class="chip" id="layer-active">Только активные</button>
+        <button class="chip" id="layer-closed">Только закрытые</button>
       </div>
-      <div style="display:flex; justify-content:space-between; margin-top:4px; font-size:11.5px;">
-        <span style="color:var(--text-dim);">Выручка</span>
-        <span style="font-family:JetBrains Mono; font-weight:700; color:var(--accent);">${r.revenue}M</span>
-      </div>
-      <div style="margin-top:10px;"><span class="delta up">▲ ${r.growth}%</span></div>
-    `}));
+    </div>
+    <div id="big-map" style="flex:1; min-height:480px;"></div>
+  `;
+  layout.appendChild(mapCard);
+  p.appendChild(layout);
+
+  // Init map
+  setTimeout(initBigMap, 50);
+}
+
+async function initBigMap() {
+  const elem = document.getElementById('big-map');
+  if (!elem) return;
+  if (__mapInst2) { __mapInst2.remove(); __mapInst2 = null; }
+
+  __mapInst2 = L.map(elem, { zoomControl: true, attributionControl: false }).setView([41.5, 64.5], 6);
+  const tileUrl = STATE.theme === 'dark'
+    ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+    : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+  L.tileLayer(tileUrl, { maxZoom: 18 }).addTo(__mapInst2);
+
+  // Load GeoJSON regions (cached)
+  if (!__regionsGeoJSON) {
+    try {
+      const r = await fetch('/api/geo/regions');
+      if (r.ok) __regionsGeoJSON = await r.json();
+    } catch {}
   }
-  p.appendChild(grid);
 
-  setTimeout(() => initMap('full-map', REGIONS), 30);
+  const liveBranches = (STATE.live && STATE.live.branches) || [];
+
+  // Region polygons
+  if (__regionsGeoJSON) {
+    __regionsLayer = L.geoJSON(__regionsGeoJSON, {
+      style: () => ({ color:'#3CCBFF', weight:1.5, fillColor:'#0033CC', fillOpacity:0.10 }),
+      onEachFeature: (feature, layer) => {
+        const key = feature.properties.key;
+        const name = feature.properties.name_ru || feature.properties.name_en || key;
+        layer.bindTooltip(`<b>${name}</b><br>${liveBranches.filter(b => b.regionKey === key).length} ПВЗ`, { sticky: true });
+        layer.on({
+          click:     () => focusOnRegion(key),
+          mouseover: () => layer.setStyle({ fillOpacity: 0.25, weight: 2 }),
+          mouseout:  () => layer.setStyle({ fillOpacity: 0.10, weight: 1.5 }),
+        });
+        layer._regionKey = key;
+      }
+    }).addTo(__mapInst2);
+  }
+
+  // Markers layer
+  __markersLayer = L.layerGroup().addTo(__mapInst2);
+  drawBranchMarkers(liveBranches);
+
+  // Wire sidebar clicks
+  document.querySelectorAll('.r-item').forEach(btn => {
+    btn.addEventListener('click', () => focusOnRegion(btn.dataset.key));
+  });
+  document.getElementById('map-reset')?.addEventListener('click', resetMapView);
+  document.getElementById('layer-active')?.addEventListener('click', () => filterMapLayer('active'));
+  document.getElementById('layer-closed')?.addEventListener('click', () => filterMapLayer('closed'));
+  document.getElementById('layer-all')?.addEventListener('click', () => filterMapLayer('all'));
+}
+
+function drawBranchMarkers(branches) {
+  if (!__markersLayer) return;
+  __markersLayer.clearLayers();
+  for (const b of branches) {
+    if (typeof b.lat !== 'number' || typeof b.lng !== 'number') continue;
+    const closed = !!b.closeDate;
+    L.circleMarker([b.lat, b.lng], {
+      radius: 5,
+      color: closed ? '#FF5577' : '#2CE0A8',
+      weight: 2,
+      fillColor: closed ? '#FF5577' : '#2CE0A8',
+      fillOpacity: 0.75,
+    })
+      .addTo(__markersLayer)
+      .bindPopup(`
+        <div style="font-family:Inter; min-width:160px;">
+          <div style="font-weight:700; font-size:13px; color:#0033CC;">${b.name || '—'}</div>
+          <div style="font-size:11px; color:#666; margin-top:4px;">
+            ID: ${b.id}<br>
+            ${b.manager ? 'Менеджер: ' + b.manager + '<br>' : ''}
+            ${b.phone1 ? 'Тел: ' + b.phone1 + '<br>' : ''}
+            ${closed ? '<b style="color:#FF5577;">Закрыт</b>' : '<b style="color:#00A872;">Активен</b>'}
+          </div>
+        </div>
+      `);
+  }
+}
+
+function focusOnRegion(regionKey) {
+  if (!__mapInst2 || !__regionsLayer) return;
+  let foundLayer = null;
+  __regionsLayer.eachLayer(l => {
+    if (l._regionKey === regionKey) { foundLayer = l; }
+  });
+  if (!foundLayer) return;
+
+  __mapInst2.fitBounds(foundLayer.getBounds(), { padding: [30, 30], maxZoom: 10 });
+
+  // Highlight selected
+  __regionsLayer.eachLayer(l => l.setStyle(
+    l._regionKey === regionKey
+      ? { fillOpacity: 0.30, weight: 2.5, color: '#FFB840', fillColor: '#FFB840' }
+      : { fillOpacity: 0.04, weight: 1, color: '#3CCBFF', fillColor: '#0033CC' }
+  ));
+
+  // Filter markers to region
+  const branches = (STATE.live && STATE.live.branches) || [];
+  const inRegion = branches.filter(b => b.regionKey === regionKey);
+  drawBranchMarkers(inRegion);
+
+  // Update status
+  const regions = (STATE.live && STATE.live.regions) || [];
+  const r = regions.find(x => x.key === regionKey);
+  const statusEl = document.getElementById('map-status');
+  if (statusEl && r) statusEl.textContent = `Регион: ${r.name} · ${inRegion.length} ПВЗ (${r.active} акт., ${r.closed} закр.)`;
+
+  // Update sidebar active item
+  document.querySelectorAll('.r-item').forEach(b => {
+    const isActive = b.dataset.key === regionKey;
+    b.style.background = isActive ? 'var(--accent-soft)' : 'var(--panel-2)';
+    b.style.borderColor = isActive ? 'var(--accent)' : 'var(--border)';
+  });
+}
+
+function resetMapView() {
+  if (!__mapInst2 || !__regionsLayer) return;
+  __mapInst2.setView([41.5, 64.5], 6);
+  __regionsLayer.eachLayer(l => l.setStyle({ fillOpacity: 0.10, weight: 1.5, color: '#3CCBFF', fillColor: '#0033CC' }));
+  drawBranchMarkers((STATE.live && STATE.live.branches) || []);
+  const branches = (STATE.live && STATE.live.branches) || [];
+  const regions  = (STATE.live && STATE.live.regions)  || [];
+  const statusEl = document.getElementById('map-status');
+  if (statusEl) statusEl.textContent = `${regions.length} регионов · ${branches.length} филиалов · кликните регион для зума`;
+  document.querySelectorAll('.r-item').forEach(b => {
+    b.style.background = 'var(--panel-2)';
+    b.style.borderColor = 'var(--border)';
+  });
+}
+
+function filterMapLayer(mode) {
+  const branches = (STATE.live && STATE.live.branches) || [];
+  let filtered = branches;
+  if (mode === 'active') filtered = branches.filter(b => !b.closeDate);
+  if (mode === 'closed') filtered = branches.filter(b => !!b.closeDate);
+  drawBranchMarkers(filtered);
+  document.querySelectorAll('#layer-all, #layer-active, #layer-closed').forEach(b => b.classList.remove('active'));
+  document.getElementById('layer-' + mode)?.classList.add('active');
 }
 
 /* ==================== PAGE: LOGISTICS ==================== */
@@ -5668,6 +5869,274 @@ async function deletePlan(id) {
   }
 }
 
+/* ==================== PAGE: AI-SCOUT (location recommender) ==================== */
+function renderScout() {
+  const c = $('#content');
+  c.innerHTML = '';
+  const p = el('div', { class: 'page active' });
+  c.appendChild(p);
+
+  // Header
+  const hdr = el('div', { class: 'card', style: 'margin-bottom:18px;' });
+  hdr.innerHTML = `
+    <div style="display:flex; align-items:flex-start; gap:16px;">
+      <div class="list-icon" style="width:50px; height:50px; background:linear-gradient(135deg,#B888FF,#0033CC); color:#fff; border-radius:14px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:22px;height:22px;"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+      </div>
+      <div style="flex:1;">
+        <div style="font-weight:700; font-size:16px;">AI-Скаут локаций для новых ПВЗ</div>
+        <div style="font-size:12.5px; color:var(--text-dim); margin-top:4px; line-height:1.6;">
+          AI анализирует <b>${STATE.live?.branchesTotal || 0}</b> существующих филиалов,
+          плотность заказов, население, цены аренды и предлагает лучшие районы для расширения сети.
+          Использует Claude API (если подключен) или встроенный rule-based анализ.
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="runScout()" id="scout-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v6M12 17v6M4.22 4.22l4.24 4.24M15.54 15.54l4.24 4.24M1 12h6M17 12h6"/></svg>
+        🎯 Найти локации
+      </button>
+    </div>
+  `;
+  p.appendChild(hdr);
+
+  // Results container
+  const results = el('div', { id: 'scout-results' });
+  if (STATE.scoutResult) {
+    results.appendChild(renderScoutResults(STATE.scoutResult));
+  } else {
+    results.appendChild(el('div', { class: 'card', style: 'padding:50px; text-align:center; color:var(--text-muted); font-size:13px;', html:
+      'Нажмите «<b>🎯 Найти локации</b>» — AI проанализирует данные и предложит до 7 районов для открытия новых ПВЗ.<br><br>' +
+      'Анализируются: ближайшие наши филиалы, плотность спроса, население, аренда, конкуренция.'
+    }));
+  }
+  p.appendChild(results);
+}
+
+function renderScoutResults(data) {
+  const wrap = document.createElement('div');
+  wrap.innerHTML = `
+    <div class="section-title"><span class="dot"></span>${data.summary || 'Рекомендации'} <span class="count">${(data.recommendations||[]).length} локаций · из ${data.candidates_total || '?'} кандидатов</span></div>
+  `;
+  const grid = el('div', { class: 'row r-1-1', style: 'margin-top:14px;' });
+  for (const rec of (data.recommendations || [])) {
+    const conf = Math.round((rec.confidence || 0) * 100);
+    const card = el('div', { class: 'card', style: 'padding:18px; border-left:3px solid var(--accent);' });
+    card.innerHTML = `
+      <div style="display:flex; align-items:flex-start; gap:14px;">
+        <div style="width:42px; height:42px; border-radius:11px; background:linear-gradient(135deg,var(--brand),var(--brand-deep)); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:16px; flex-shrink:0;">${rec.rank}</div>
+        <div style="flex:1;">
+          <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+            <div style="font-weight:700; font-size:15px;">${rec.district || '—'}</div>
+            <span class="pill brand">${rec.region || '—'}</span>
+            <span class="pill ${conf >= 80 ? 'success' : conf >= 60 ? 'brand' : 'warning'}">Уверенность ${conf}%</span>
+          </div>
+          <div style="margin-top:10px; display:flex; gap:18px; flex-wrap:wrap; font-size:11.5px; color:var(--text-dim);">
+            <span>📦 <b style="color:var(--text);">${fmt(rec.expected_monthly_orders || 0)}</b> зак/мес</span>
+            <span>⏱ Окуп. <b style="color:var(--text);">${rec.payback_months || '—'}</b> мес</span>
+            ${rec.suggested_format ? `<span>🏪 Формат: <b style="color:var(--text);">${rec.suggested_format}</b></span>` : ''}
+            ${rec.coordinates ? `<span>📍 <b style="color:var(--text); font-family:JetBrains Mono; font-size:11px;">${rec.coordinates.lat?.toFixed(3)}, ${rec.coordinates.lng?.toFixed(3)}</b></span>` : ''}
+          </div>
+          <ul style="margin-top:12px; padding-left:18px; font-size:12px; color:var(--text-dim); line-height:1.7;">
+            ${(rec.reasons || []).map(r => `<li style="color:var(--success); margin-bottom:2px;"><span style="color:var(--text);">${r}</span></li>`).join('')}
+            ${(rec.risks || []).map(r => `<li style="color:var(--warning); margin-bottom:2px;"><span style="color:var(--text-dim);">⚠ ${r}</span></li>`).join('')}
+          </ul>
+          ${rec.coordinates ? `<button class="btn" style="margin-top:10px; font-size:11.5px; padding:6px 12px;" onclick="window.open('https://yandex.ru/maps/?ll=${rec.coordinates.lng},${rec.coordinates.lat}&z=14&pt=${rec.coordinates.lng},${rec.coordinates.lat}','_blank')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+            Открыть в Яндекс.Картах
+          </button>` : ''}
+        </div>
+      </div>
+    `;
+    grid.appendChild(card);
+  }
+  wrap.appendChild(grid);
+  if (data.source === 'local') {
+    wrap.appendChild(el('div', { class: 'card', style: 'margin-top:14px; padding:14px; text-align:center; font-size:11.5px; color:var(--text-muted); background:var(--panel-2);', html:
+      'ℹ Локальный анализ. Добавьте <code>ANTHROPIC_API_KEY</code> в env Vercel для умных рекомендаций с обоснованием от Claude.'
+    }));
+  }
+  return wrap;
+}
+
+async function runScout() {
+  const btn = document.getElementById('scout-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Анализирую...'; }
+  try {
+    const r = await fetch('/api/ai-scout', { headers: { Authorization: 'Bearer ' + STATE.token } });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const j = await r.json();
+    STATE.scoutResult = j;
+    toast(`AI нашёл ${j.recommendations?.length || 0} локаций. Источник: ${j.source === 'local' ? 'локальный' : 'Claude'}`, 'success');
+    renderPage(STATE.page);
+  } catch (e) {
+    toast('Ошибка: ' + e.message, 'danger');
+    if (btn) { btn.disabled = false; btn.innerHTML = '🎯 Найти локации'; }
+  }
+}
+
+/* ==================== PAGE: ACCESS (RBAC management) ==================== */
+let DEPARTMENTS_CATALOG = {};
+let USERS_CACHE = [];
+
+async function loadDepartments() {
+  try {
+    const r = await fetch('/api/departments', { headers: { Authorization: 'Bearer ' + STATE.token } });
+    if (!r.ok) return {};
+    const j = await r.json();
+    DEPARTMENTS_CATALOG = j.departments || {};
+    return DEPARTMENTS_CATALOG;
+  } catch { return {}; }
+}
+async function loadUsers() {
+  try {
+    const r = await fetch('/api/users', { headers: { Authorization: 'Bearer ' + STATE.token } });
+    if (!r.ok) return [];
+    const j = await r.json();
+    USERS_CACHE = j.users || [];
+    return USERS_CACHE;
+  } catch { return []; }
+}
+
+async function renderAccess() {
+  const c = $('#content');
+  c.innerHTML = '';
+  const p = el('div', { class: 'page active' });
+  c.appendChild(p);
+
+  p.appendChild(el('div', { style: 'padding:30px; text-align:center; color:var(--text-muted);', html: 'Загрузка...' }));
+
+  const [depts, users] = await Promise.all([loadDepartments(), loadUsers()]);
+  p.innerHTML = '';
+
+  // Header
+  const hdr = el('div', { class: 'card', style: 'margin-bottom:18px;' });
+  hdr.innerHTML = `
+    <div style="display:flex; align-items:flex-start; gap:16px;">
+      <div class="list-icon" style="width:50px; height:50px; background:linear-gradient(135deg,var(--purple),var(--brand)); color:#fff; border-radius:14px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:22px;height:22px;"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      </div>
+      <div style="flex:1;">
+        <div style="font-weight:700; font-size:16px;">RBAC · Доступы и отделы</div>
+        <div style="font-size:12.5px; color:var(--text-dim); margin-top:4px; line-height:1.6;">
+          Пользователи могут быть привязаны к одному или нескольким отделам.
+          Каждый отдел открывает определённые страницы и видит только свои данные.
+          Пользователи без отделов имеют полный доступ (back-compat).
+        </div>
+      </div>
+    </div>
+  `;
+  p.appendChild(hdr);
+
+  // Departments catalog
+  p.appendChild(el('div', { class: 'section-title', html: `<span class="dot"></span>Отделы <span class="count">${Object.keys(depts).length} шт</span>` }));
+  const deptGrid = el('div', { class: 'row r-3' });
+  for (const [key, d] of Object.entries(depts)) {
+    const usersInDept = users.filter(u => Array.isArray(u.departments) && u.departments.includes(key));
+    const card = el('div', { class: 'card', style: `border-left:3px solid ${d.color || 'var(--brand)'};` });
+    card.innerHTML = `
+      <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+        <div style="width:32px; height:32px; border-radius:9px; background:${d.color || 'var(--brand)'}; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:700;">${(d.name || key)[0]}</div>
+        <div style="flex:1;">
+          <div style="font-weight:700; font-size:13.5px;">${d.name || key}</div>
+          <div style="font-size:10.5px; color:var(--text-muted); font-family:JetBrains Mono;">${key}</div>
+        </div>
+        <span class="pill brand">${usersInDept.length} чел</span>
+      </div>
+      <div style="font-size:11px; color:var(--text-dim);">
+        <b>Страницы:</b> ${(d.pages || []).slice(0, 4).join(', ')}${(d.pages||[]).length > 4 ? '...' : ''}
+      </div>
+      <div style="font-size:11px; color:var(--text-dim); margin-top:4px;">
+        <b>Данные:</b> ${(d.scopes || []).join(', ')}
+      </div>
+    `;
+    deptGrid.appendChild(card);
+  }
+  p.appendChild(deptGrid);
+  p.appendChild(el('div', { style: 'height:18px;' }));
+
+  // Users table
+  p.appendChild(el('div', { class: 'section-title', html: `<span class="dot"></span>Пользователи <span class="count">${users.length} шт</span>` }));
+  const usersCard = el('div', { class: 'card' });
+  const tbl = el('table', { class: 'table' });
+  tbl.innerHTML = `
+    <thead><tr><th>Логин</th><th>ФИО</th><th>Роль</th><th>Отделы</th><th>Email</th><th>Создан</th><th>Действия</th></tr></thead>
+    <tbody>
+      ${users.map(u => {
+        const userDepts = Array.isArray(u.departments) ? u.departments : [];
+        const isFullAccess = userDepts.length === 0 || u.role === 'director';
+        return `<tr>
+          <td><b>${u.login || '—'}</b><div style="font-size:10.5px; color:var(--text-muted); font-family:JetBrains Mono;">${u.id}</div></td>
+          <td>${u.fullName || '—'}</td>
+          <td><span class="pill ${u.role === 'director' ? 'purple' : u.role === 'manager' ? 'brand' : 'muted'}">${u.role}</span></td>
+          <td>${
+            isFullAccess
+              ? '<span class="pill success">Полный доступ</span>'
+              : userDepts.map(dk => {
+                  const d = depts[dk];
+                  return `<span class="pill" style="background:${d?.color || 'var(--brand)'}22; color:${d?.color || 'var(--brand)'}; margin-right:3px;">${d?.name || dk}</span>`;
+                }).join(' ')
+          }</td>
+          <td style="font-size:11px;">${u.email || '—'}</td>
+          <td style="font-family:JetBrains Mono; font-size:11px;">${u.createdAt ? new Date(u.createdAt).toLocaleDateString('ru-RU') : '—'}</td>
+          <td><button class="btn" style="padding:5px 11px; font-size:11px;" onclick="editUserDepts('${u.id}')">Изменить отделы</button></td>
+        </tr>`;
+      }).join('')}
+    </tbody>
+  `;
+  usersCard.appendChild(tbl);
+  p.appendChild(usersCard);
+}
+
+function editUserDepts(userId) {
+  const user = USERS_CACHE.find(u => u.id === userId);
+  if (!user) return;
+  const current = new Set(Array.isArray(user.departments) ? user.departments : []);
+  const html = `
+    <h3>Отделы пользователя</h3>
+    <p class="sub" style="font-size:12.5px; color:var(--text-dim);">${user.fullName} · <b>${user.login}</b></p>
+    <div style="display:flex; flex-direction:column; gap:8px; margin: 16px 0;">
+      ${Object.entries(DEPARTMENTS_CATALOG).map(([key, d]) => `
+        <label style="display:flex; align-items:center; gap:10px; padding:10px 12px; background:var(--panel-2); border-radius:10px; cursor:pointer;">
+          <input type="checkbox" class="dept-cb" value="${key}" ${current.has(key) ? 'checked' : ''}>
+          <div style="width:28px; height:28px; border-radius:8px; background:${d.color || 'var(--brand)'}; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:700; font-size:12px;">${(d.name || key)[0]}</div>
+          <div style="flex:1;">
+            <div style="font-weight:600; font-size:12.5px;">${d.name}</div>
+            <div style="font-size:10.5px; color:var(--text-muted); font-family:JetBrains Mono;">${key}</div>
+          </div>
+        </label>
+      `).join('')}
+    </div>
+    <div style="padding:10px 12px; background:var(--accent-soft); border-left:3px solid var(--accent); border-radius:8px; font-size:11.5px; color:var(--text-dim); margin-bottom:14px;">
+      💡 Если отделов не выбрано — пользователь получает полный доступ (back-compat).
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Отмена</button>
+      <button class="btn btn-primary" onclick="saveUserDepts('${userId}')">Сохранить</button>
+    </div>
+  `;
+  showModal(html);
+}
+
+async function saveUserDepts(userId) {
+  const cbs = document.querySelectorAll('.dept-cb:checked');
+  const departments = Array.from(cbs).map(c => c.value);
+  try {
+    const r = await fetch('/api/users', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + STATE.token },
+      body: JSON.stringify({ id: userId, departments }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.message || j.error);
+    toast(`Отделы обновлены: ${departments.length ? departments.join(', ') : 'полный доступ'}`, 'success');
+    closeModal();
+    await loadUsers();
+    renderPage(STATE.page);
+  } catch (e) {
+    toast('Ошибка: ' + e.message, 'danger');
+  }
+}
+
 /* ==================== PAGE: SETTINGS ==================== */
 function renderSettings() {
   const c = $('#content');
@@ -5910,6 +6379,8 @@ function renderPage(p) {
     case 'courier-weight':  return renderCourierWeight();
     case 'courier-status':  return renderCourierStatus();
     case 'plans':           return renderPlans();
+    case 'scout':           return renderScout();
+    case 'access':          return renderAccess();
     default:                return renderHome();
   }
 }

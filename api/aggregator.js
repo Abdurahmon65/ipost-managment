@@ -6,6 +6,7 @@
 
 import { getBranches, getRecords, getUsers, redis } from './_lib/redis.js';
 import { requireAuth, safeUser, isDirector } from './_lib/auth.js';
+import { computeEffectivePermissions, filterPayloadByScopes, permsToJson } from './_lib/rbac.js';
 
 async function getPlans() {
   try {
@@ -139,10 +140,12 @@ export default async function handler(req, res) {
     const regions = aggregateRegions(branches);
     const kpis    = buildKpis({ branches, dispatch, records });
 
+    const perms = await computeEffectivePermissions(ctx.user);
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-    return res.status(200).json({
+    const payload = {
       ts: Date.now(),
       me: safeUser(ctx.user),
+      permissions: permsToJson(perms),
       sources: {
         pvz:      { online: true, url: 'redis', count: branches.length },
         dispatch: { online: dispatch.online, url: DISPATCH_URL, error: dispatch.error,
@@ -172,7 +175,9 @@ export default async function handler(req, res) {
         activity:      (dispatch.activity     || []).slice(0, 50),
         notifications: (dispatch.notifications|| []).slice(0, 30),
       },
-    });
+    };
+    filterPayloadByScopes(payload, perms);
+    return res.status(200).json(payload);
   } catch (e) {
     console.error('[api/aggregator] error:', e);
     return res.status(500).json({ error: 'server_error', message: String(e?.message || e) });
