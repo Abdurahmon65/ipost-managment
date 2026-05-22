@@ -742,6 +742,136 @@
     font-family: 'JetBrains Mono', monospace;
   }
 
+  /* ==================== PLANS LOCKED SCREEN ==================== */
+  .plans-locked {
+    position: relative;
+    min-height: calc(100vh - 110px);
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+  }
+  .plans-locked-wrap {
+    position: relative; width: 100%; min-height: 70vh;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .plans-locked-bg {
+    position: absolute; inset: 0;
+    overflow: hidden; user-select: none; pointer-events: none;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 20px;
+  }
+  .plans-locked-bg::before, .plans-locked-bg::after {
+    content: '';
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(80px);
+    opacity: 0.4;
+  }
+  .plans-locked-bg::before {
+    width: 500px; height: 500px;
+    background: radial-gradient(circle, var(--brand) 0%, transparent 70%);
+    top: -100px; left: 10%;
+  }
+  .plans-locked-bg::after {
+    width: 600px; height: 600px;
+    background: radial-gradient(circle, var(--brand-2) 0%, transparent 70%);
+    bottom: -150px; right: 10%;
+    opacity: 0.25;
+  }
+  .plans-locked-bg-text {
+    font-size: 140px; font-weight: 900;
+    letter-spacing: -4px;
+    background: linear-gradient(135deg, var(--brand) 0%, var(--brand-2) 100%);
+    -webkit-background-clip: text; background-clip: text;
+    color: transparent;
+    opacity: 0.12;
+    line-height: 0.9;
+    white-space: nowrap;
+  }
+  .plans-locked-bg-text .go {
+    font-style: italic;
+    background: linear-gradient(135deg, var(--brand-2) 0%, var(--accent) 100%);
+    -webkit-background-clip: text; background-clip: text;
+    color: transparent;
+  }
+  .plans-locked-bg-sub {
+    font-size: 32px; font-weight: 600;
+    letter-spacing: 8px;
+    color: var(--text-dim);
+    opacity: 0.10;
+    text-transform: uppercase;
+    margin-top: -20px;
+  }
+  .plans-locked-bg-text.small { font-size: 80px; opacity: 0.07; letter-spacing: -2px; }
+  .plans-locked-bg-sub.small  { font-size: 18px; opacity: 0.06; letter-spacing: 6px; margin-top: -12px; }
+  .plans-locked-bg-text.tiny  { font-size: 50px; opacity: 0.05; letter-spacing: -1px; }
+  .plans-locked-bg-sub.tiny   { font-size: 12px; opacity: 0.04; letter-spacing: 4px; margin-top: -8px; }
+
+  .plans-locked-card {
+    position: relative; z-index: 2;
+    text-align: center;
+    padding: 50px 60px;
+    background: rgba(var(--panel-rgb, 15, 23, 41), 0.6);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    box-shadow: 0 30px 80px rgba(0, 15, 50, 0.6);
+    max-width: 460px;
+  }
+  :root[data-theme="dark"] .plans-locked-card { background: rgba(15, 23, 41, 0.75); }
+  :root[data-theme="light"] .plans-locked-card { background: rgba(255, 255, 255, 0.85); }
+
+  .plans-locked-icon {
+    width: 110px; height: 110px;
+    border-radius: 50%;
+    margin: 0 auto 28px;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, var(--danger) 0%, #FF99B0 100%);
+    color: #fff;
+    box-shadow: 0 14px 40px rgba(255, 85, 119, 0.45),
+                inset 0 2px 0 rgba(255,255,255,0.3);
+    position: relative;
+  }
+  .plans-locked-icon::before {
+    content: ''; position: absolute; inset: -8px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--danger), transparent 70%);
+    opacity: 0.4;
+    filter: blur(20px);
+    z-index: -1;
+    animation: pulse-glow 2s ease-in-out infinite;
+  }
+  @keyframes pulse-glow {
+    0%, 100% { opacity: 0.4; transform: scale(1); }
+    50%      { opacity: 0.7; transform: scale(1.1); }
+  }
+  .plans-locked-icon svg { width: 60px; height: 60px; }
+
+  .plans-locked-title {
+    font-size: 28px; font-weight: 800;
+    color: var(--text);
+    margin-bottom: 12px;
+    letter-spacing: -0.5px;
+  }
+  .plans-locked-sub {
+    font-size: 14px; color: var(--text-dim);
+    line-height: 1.6;
+    margin-bottom: 22px;
+  }
+  .plans-locked-meta {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  @media (max-width: 600px) {
+    .plans-locked-card { padding: 36px 28px; }
+    .plans-locked-bg-text { font-size: 72px; }
+    .plans-locked-bg-sub  { font-size: 18px; }
+    .plans-locked-icon { width: 90px; height: 90px; }
+    .plans-locked-icon svg { width: 48px; height: 48px; }
+    .plans-locked-title { font-size: 22px; }
+  }
+
   /* SCOUT MAP: pulsing recommendation marker */
   @keyframes ping {
     0%   { transform: scale(1);   opacity: 0.55; }
@@ -6347,6 +6477,46 @@ async function approveAllPlans() {
 function renderPlans() {
   const c = $('#content');
   c.innerHTML = '';
+  // === Закрытый экран ===
+  // Логика планов осталась в backend (/api/plans), но UI временно недоступен всем.
+  const locked = el('div', { class: 'page active plans-locked' });
+  locked.innerHTML = `
+    <div class="plans-locked-wrap">
+      <div class="plans-locked-bg" aria-hidden="true">
+        <div class="plans-locked-bg-text">iPost <span class="go">GO</span></div>
+        <div class="plans-locked-bg-sub">fast and easy</div>
+        <div class="plans-locked-bg-text small">iPost <span class="go">GO</span></div>
+        <div class="plans-locked-bg-sub small">fast and easy</div>
+        <div class="plans-locked-bg-text tiny">iPost <span class="go">GO</span></div>
+        <div class="plans-locked-bg-sub tiny">fast and easy</div>
+      </div>
+      <div class="plans-locked-card">
+        <div class="plans-locked-icon">
+          <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="14" y="28" width="36" height="26" rx="4"/>
+            <path d="M21 28V18a11 11 0 0 1 22 0v10"/>
+            <circle cx="32" cy="41" r="3.5" fill="currentColor"/>
+            <path d="M32 44.5v4" stroke-width="3.5"/>
+          </svg>
+        </div>
+        <div class="plans-locked-title">Раздел закрыт</div>
+        <div class="plans-locked-sub">Доступ к планам ПВЗ временно ограничен.<br>Обратитесь к директору для разблокировки.</div>
+        <div class="plans-locked-meta">
+          <span class="pill danger">🔒 Access denied</span>
+          <span style="font-size:11px; color:var(--text-muted); font-family:JetBrains Mono;">module: pvz-plans</span>
+        </div>
+        <button class="btn" style="margin-top:24px;" onclick="goTo('home')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          Вернуться на главную
+        </button>
+      </div>
+    </div>
+  `;
+  c.appendChild(locked);
+  return;
+
+  // ===== Original implementation kept below (unreachable) =====
+  // eslint-disable-next-line no-unreachable
   const p = el('div', { class: 'page active' });
   c.appendChild(p);
 
