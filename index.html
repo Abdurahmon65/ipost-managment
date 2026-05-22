@@ -4683,30 +4683,77 @@ function addBonusDialog(preselectedEmpId, preselectedEmpName, preselectedEmpType
   const branches  = live.branches || [];
   const users     = live.users || [];
 
-  // Build employee select options
-  const courierOpts = drivers.map(d => `<option value="courier|${d.id}|${(d.name||'').replace(/"/g,'')}" ${preselectedEmpId === d.id ? 'selected' : ''}>🚴 ${d.name || d.id}${d.phone ? ' · '+d.phone : ''}</option>`).join('');
+  // Build flat employee list with search index
+  const employees = [];
+  for (const d of drivers) {
+    employees.push({
+      key: `courier|${d.id}|${(d.name||'').replace(/"/g,'')}`,
+      id: d.id, name: d.name || d.id, type: 'courier',
+      icon: '🚴', group: 'Курьеры и водители',
+      extra: d.phone || '',
+      search: ((d.name || '') + ' ' + (d.phone || '') + ' ' + (d.id || '')).toLowerCase(),
+    });
+  }
   const mgrSet = new Set();
-  const mgrOpts = branches.filter(b => !b.closeDate && b.manager).map(b => {
+  for (const b of branches) {
+    if (b.closeDate || !b.manager) continue;
     const key = b.manager.trim();
-    if (mgrSet.has(key)) return '';
+    if (mgrSet.has(key)) continue;
     mgrSet.add(key);
     const id = 'mgr:' + key.toLowerCase().replace(/\s+/g, '_');
-    return `<option value="manager|${id}|${key.replace(/"/g,'')}" ${preselectedEmpId === id ? 'selected' : ''}>🏢 ${key}</option>`;
-  }).join('');
-  const userOpts = users.map(u => `<option value="user|${u.id}|${(u.fullName||u.login||'').replace(/"/g,'')}" ${preselectedEmpId === u.id ? 'selected' : ''}>👤 ${u.fullName || u.login} (${u.role})</option>`).join('');
+    employees.push({
+      key: `manager|${id}|${key.replace(/"/g,'')}`,
+      id, name: key, type: 'manager',
+      icon: '🏢', group: 'Менеджеры ПВЗ',
+      extra: '',
+      search: (key + ' ' + id).toLowerCase(),
+    });
+  }
+  for (const u of users) {
+    employees.push({
+      key: `user|${u.id}|${(u.fullName||u.login||'').replace(/"/g,'')}`,
+      id: u.id, name: u.fullName || u.login, type: 'user',
+      icon: '👤', group: 'Системные пользователи',
+      extra: u.role || '',
+      search: ((u.fullName || '') + ' ' + (u.login || '') + ' ' + (u.email || '')).toLowerCase(),
+    });
+  }
+  window.__bonusEmployees = employees;
+  window.__bonusSelectedKey = preselectedEmpId ? employees.find(e => e.id === preselectedEmpId)?.key || '' : '';
+  const initialEmp = employees.find(e => e.key === window.__bonusSelectedKey);
 
   const html = `
     <h3>💰 Бонус / штраф сотруднику</h3>
     <p class="sub" style="font-size:12.5px; color:var(--text-dim);">Начисление будет сохранено в системе с пометкой кто и когда добавил.</p>
 
-    <div class="form-row">
-      <label>Сотрудник *</label>
-      <select id="bn-employee">
-        <option value="">— Выберите сотрудника —</option>
-        ${courierOpts ? '<optgroup label="Курьеры и водители">' + courierOpts + '</optgroup>' : ''}
-        ${mgrOpts ? '<optgroup label="Менеджеры ПВЗ">' + mgrOpts + '</optgroup>' : ''}
-        ${userOpts ? '<optgroup label="Системные пользователи">' + userOpts + '</optgroup>' : ''}
-      </select>
+    <div class="form-row" style="position:relative;">
+      <label>Сотрудник * <span style="font-size:10.5px; color:var(--text-muted); text-transform:none; letter-spacing:0;">${employees.length} в списке</span></label>
+      <div class="emp-combo" style="position:relative;">
+        <div class="emp-combo-trigger" id="bn-emp-trigger" onclick="toggleEmpDropdown()" style="
+          display:flex; align-items:center; gap:8px; padding:10px 38px 10px 12px;
+          border-radius:10px; background:var(--panel-2); border:1px solid var(--border);
+          color:var(--text); font-size:13px; cursor:pointer; min-height:42px;
+        ">
+          <span id="bn-emp-display">${initialEmp ? initialEmp.icon + ' ' + initialEmp.name + (initialEmp.extra ? ' · ' + initialEmp.extra : '') : '<span style="color:var(--text-muted);">— Выберите сотрудника или начните вводить —</span>'}</span>
+          <svg style="position:absolute; right:12px; top:50%; transform:translateY(-50%); width:14px; height:14px; color:var(--text-muted);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+        <div class="emp-dropdown" id="bn-emp-dropdown" style="
+          display:none; position:absolute; top:100%; left:0; right:0; z-index:200;
+          margin-top:4px; background:var(--panel); border:1px solid var(--border); border-radius:10px;
+          box-shadow:var(--shadow-lg); max-height:340px; overflow:hidden; display:flex; flex-direction:column;
+        ">
+          <div style="padding:10px; border-bottom:1px solid var(--border); position:relative;">
+            <svg style="position:absolute; left:18px; top:50%; transform:translateY(-50%); width:14px; height:14px; color:var(--text-muted);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+            <input type="text" id="bn-emp-search" placeholder="Поиск по имени, фамилии, телефону..." style="
+              width:100%; padding:8px 10px 8px 32px; border-radius:8px;
+              background:var(--panel-2); border:1px solid var(--border); color:var(--text);
+              font-size:12.5px; font-family:inherit;
+            " autocomplete="off" oninput="filterEmpDropdown(this.value)">
+          </div>
+          <div id="bn-emp-list" style="overflow-y:auto; flex:1; padding:6px;"></div>
+        </div>
+        <input type="hidden" id="bn-employee" value="${window.__bonusSelectedKey || ''}">
+      </div>
     </div>
 
     <div class="form-row">
@@ -4763,6 +4810,74 @@ function addBonusDialog(preselectedEmpId, preselectedEmpName, preselectedEmpType
       });
     });
   }, 30);
+}
+
+function toggleEmpDropdown(show) {
+  const dd = document.getElementById('bn-emp-dropdown');
+  if (!dd) return;
+  const isOpen = dd.style.display !== 'none' && dd.style.display !== '';
+  const next = show != null ? show : !isOpen;
+  dd.style.display = next ? 'flex' : 'none';
+  if (next) {
+    filterEmpDropdown('');
+    setTimeout(() => document.getElementById('bn-emp-search')?.focus(), 50);
+    // Close on outside click
+    setTimeout(() => {
+      document.addEventListener('click', empDropdownOutsideClick, { once: true });
+    }, 10);
+  }
+}
+function empDropdownOutsideClick(e) {
+  const wrap = document.querySelector('.emp-combo');
+  if (wrap && !wrap.contains(e.target)) toggleEmpDropdown(false);
+  else document.addEventListener('click', empDropdownOutsideClick, { once: true });
+}
+
+function filterEmpDropdown(query) {
+  const list = document.getElementById('bn-emp-list');
+  if (!list) return;
+  const q = String(query || '').toLowerCase().trim();
+  const all = window.__bonusEmployees || [];
+  const filtered = q ? all.filter(e => e.search.includes(q)) : all;
+  if (filtered.length === 0) {
+    list.innerHTML = `<div style="padding:24px; text-align:center; color:var(--text-muted); font-size:12px;">Ничего не найдено по запросу «${query}»</div>`;
+    return;
+  }
+  // Group by group name
+  const groups = {};
+  for (const e of filtered) { (groups[e.group] = groups[e.group] || []).push(e); }
+  list.innerHTML = Object.entries(groups).map(([gName, items]) => `
+    <div style="font-size:9.5px; font-weight:700; text-transform:uppercase; letter-spacing:1px; color:var(--text-muted); padding:8px 8px 4px;">${gName} (${items.length})</div>
+    ${items.map(e => `
+      <div class="emp-row" data-key="${e.key.replace(/"/g, '&quot;')}" onclick="selectEmployee(this.dataset.key)" style="
+        display:flex; align-items:center; gap:10px; padding:9px 10px;
+        border-radius:8px; cursor:pointer; transition:background 0.12s;
+      " onmouseover="this.style.background='var(--panel-2)'" onmouseout="this.style.background='transparent'">
+        <div style="width:30px; height:30px; border-radius:8px; background:var(--accent-soft); display:flex; align-items:center; justify-content:center; font-size:14px; flex-shrink:0;">${e.icon}</div>
+        <div style="flex:1; min-width:0;">
+          <div style="font-weight:600; font-size:12.5px; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${highlightMatch(e.name, q)}</div>
+          ${e.extra ? `<div style="font-size:10.5px; color:var(--text-muted); font-family:JetBrains Mono;">${highlightMatch(e.extra, q)}</div>` : ''}
+        </div>
+      </div>
+    `).join('')}
+  `).join('');
+}
+
+function highlightMatch(text, q) {
+  if (!q || !text) return text || '';
+  const re = new RegExp('(' + q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+  return String(text).replace(re, '<mark style="background:var(--accent-soft); color:var(--accent); padding:0 2px; border-radius:3px;">$1</mark>');
+}
+
+function selectEmployee(key) {
+  const e = (window.__bonusEmployees || []).find(x => x.key === key);
+  if (!e) return;
+  window.__bonusSelectedKey = key;
+  const inp = document.getElementById('bn-employee');
+  if (inp) inp.value = key;
+  const display = document.getElementById('bn-emp-display');
+  if (display) display.innerHTML = `${e.icon} <b>${e.name}</b>${e.extra ? ' · ' + e.extra : ''}`;
+  toggleEmpDropdown(false);
 }
 
 async function submitBonus() {
