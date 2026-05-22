@@ -79,6 +79,11 @@ export async function computeEffectivePermissions(user) {
     (def.pages  || []).forEach(p => pages.add(p));
     (def.scopes || []).forEach(s => scopes.add(s));
   }
+  // Manager and director can always manage users/departments
+  if (user.role === 'manager' || user.role === 'director') {
+    pages.add('access');
+    scopes.add('users');
+  }
   return { all: false, pages, scopes, departments: depts };
 }
 

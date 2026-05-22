@@ -6057,13 +6057,21 @@ async function renderAccess() {
   // Users table
   p.appendChild(el('div', { class: 'section-title', html: `<span class="dot"></span>Пользователи <span class="count">${users.length} шт</span>` }));
   const usersCard = el('div', { class: 'card' });
+  usersCard.appendChild(el('div', { class: 'card-head', html: `
+    <div><div class="h">Все пользователи</div><div class="sub">Создание / редактирование / выдача паролей</div></div>
+    <button class="btn btn-primary" onclick="createUserDialog()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+      + Создать пользователя
+    </button>
+  `}));
   const tbl = el('table', { class: 'table' });
   tbl.innerHTML = `
-    <thead><tr><th>Логин</th><th>ФИО</th><th>Роль</th><th>Отделы</th><th>Email</th><th>Создан</th><th>Действия</th></tr></thead>
+    <thead><tr><th>Логин</th><th>ФИО</th><th>Роль</th><th>Отделы</th><th>Контакты</th><th>Создан</th><th>Действия</th></tr></thead>
     <tbody>
       ${users.map(u => {
         const userDepts = Array.isArray(u.departments) ? u.departments : [];
         const isFullAccess = userDepts.length === 0 || u.role === 'director';
+        const isProtected = u.id === 'U-IPOST' || u.id === 'U-DIRECTOR';
         return `<tr>
           <td><b>${u.login || '—'}</b><div style="font-size:10.5px; color:var(--text-muted); font-family:JetBrains Mono;">${u.id}</div></td>
           <td>${u.fullName || '—'}</td>
@@ -6076,15 +6084,257 @@ async function renderAccess() {
                   return `<span class="pill" style="background:${d?.color || 'var(--brand)'}22; color:${d?.color || 'var(--brand)'}; margin-right:3px;">${d?.name || dk}</span>`;
                 }).join(' ')
           }</td>
-          <td style="font-size:11px;">${u.email || '—'}</td>
+          <td style="font-size:11px; line-height:1.5;">
+            ${u.email ? u.email + '<br>' : ''}
+            ${u.phone ? '<span style="color:var(--text-muted); font-family:JetBrains Mono;">'+u.phone+'</span>' : ''}
+          </td>
           <td style="font-family:JetBrains Mono; font-size:11px;">${u.createdAt ? new Date(u.createdAt).toLocaleDateString('ru-RU') : '—'}</td>
-          <td><button class="btn" style="padding:5px 11px; font-size:11px;" onclick="editUserDepts('${u.id}')">Изменить отделы</button></td>
+          <td style="white-space:nowrap;">
+            <button class="btn" style="padding:5px 9px; font-size:11px;" onclick="editUserDialog('${u.id}')" title="Изменить">✏</button>
+            <button class="btn" style="padding:5px 9px; font-size:11px;" onclick="changePwdDialog('${u.id}')" title="Сменить пароль">🔑</button>
+            <button class="btn" style="padding:5px 9px; font-size:11px;" onclick="editUserDepts('${u.id}')" title="Отделы">🏢</button>
+            ${!isProtected ? `<button class="btn" style="padding:5px 9px; font-size:11px; color:var(--danger);" onclick="deleteUser('${u.id}')" title="Удалить">🗑</button>` : ''}
+          </td>
         </tr>`;
       }).join('')}
     </tbody>
   `;
   usersCard.appendChild(tbl);
   p.appendChild(usersCard);
+}
+
+/* ===== Create user dialog ===== */
+function createUserDialog() {
+  const deptCheckboxes = Object.entries(DEPARTMENTS_CATALOG).map(([key, d]) => `
+    <label style="display:flex; align-items:center; gap:8px; padding:8px 10px; background:var(--panel-2); border-radius:8px; cursor:pointer; font-size:12px;">
+      <input type="checkbox" class="new-dept-cb" value="${key}">
+      <div style="width:22px; height:22px; border-radius:6px; background:${d.color || 'var(--brand)'}; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:700; font-size:10px;">${(d.name || key)[0]}</div>
+      <span>${d.name}</span>
+    </label>
+  `).join('');
+  const html = `
+    <h3>👤 Создать пользователя</h3>
+    <p class="sub" style="font-size:12.5px; color:var(--text-dim);">Логин и пароль пользователя — выдаются вами при создании.</p>
+    <div class="form-row"><label>ФИО *</label><input type="text" id="nu-fullName" placeholder="Иван Петров"></div>
+    <div class="row r-1-1" style="gap:10px; margin:0;">
+      <div class="form-row"><label>Логин *</label><input type="text" id="nu-login" placeholder="i.petrov" autocomplete="off"></div>
+      <div class="form-row"><label>Роль *</label>
+        <select id="nu-role">
+          <option value="operator">Operator (только чтение)</option>
+          <option value="manager" selected>Manager (полные права)</option>
+          <option value="director">Director (полный доступ)</option>
+        </select>
+      </div>
+    </div>
+    <div class="row r-1-1" style="gap:10px; margin:0;">
+      <div class="form-row"><label>Email *</label><input type="email" id="nu-email" placeholder="user@ipost.uz"></div>
+      <div class="form-row"><label>Телефон *</label><input type="text" id="nu-phone" placeholder="+998 90 123 45 67"></div>
+    </div>
+    <div class="form-row"><label>Пароль * (не менее 4 символов)</label>
+      <div class="pwd-wrap">
+        <input type="password" id="nu-pwd" placeholder="Введите начальный пароль">
+        <button type="button" class="pwd-toggle" id="nu-pwd-eye" onclick="togglePwd('nu-pwd','nu-pwd-eye')">
+          <svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          <svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="form-row">
+      <label>Отделы (опционально — пустой список = полный доступ)</label>
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px; margin-top:6px;">${deptCheckboxes}</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Отмена</button>
+      <button class="btn btn-primary" onclick="submitCreateUser()">✓ Создать</button>
+    </div>
+  `;
+  showModal(html);
+  // Suggest a random password
+  setTimeout(() => {
+    const pwd = document.getElementById('nu-pwd');
+    if (pwd && !pwd.value) {
+      const chars = 'abcdefghkmnpqrstuvwxyz23456789';
+      let s = ''; for (let i = 0; i < 10; i++) s += chars[Math.floor(Math.random() * chars.length)];
+      pwd.value = s;
+      pwd.type = 'text'; // показать чтобы запомнить
+      const btn = document.getElementById('nu-pwd-eye');
+      if (btn) btn.classList.add('visible');
+    }
+  }, 100);
+}
+
+async function submitCreateUser() {
+  const body = {
+    fullName: (document.getElementById('nu-fullName')?.value || '').trim(),
+    login:    (document.getElementById('nu-login')?.value || '').trim(),
+    email:    (document.getElementById('nu-email')?.value || '').trim(),
+    phone:    (document.getElementById('nu-phone')?.value || '').trim(),
+    password: (document.getElementById('nu-pwd')?.value || ''),
+    role:     document.getElementById('nu-role')?.value || 'manager',
+    departments: Array.from(document.querySelectorAll('.new-dept-cb:checked')).map(c => c.value),
+  };
+  if (!body.fullName || !body.login || !body.email || !body.phone || !body.password) {
+    toast('Заполните все обязательные поля', 'warning');
+    return;
+  }
+  if (body.password.length < 4) {
+    toast('Пароль должен быть не менее 4 символов', 'warning');
+    return;
+  }
+  try {
+    const r = await fetch('/api/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + STATE.token },
+      body: JSON.stringify(body),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.message || j.error || 'create_failed');
+    toast(`✓ Пользователь ${body.login} создан. Сообщите ему пароль: ${body.password}`, 'success');
+    closeModal();
+    await loadUsers();
+    renderPage(STATE.page);
+  } catch (e) {
+    const msg = e.message === 'login_taken' ? 'Логин уже занят'
+      : e.message === 'email_taken' ? 'Email уже занят'
+      : 'Ошибка: ' + e.message;
+    toast(msg, 'danger');
+  }
+}
+
+/* ===== Edit user dialog ===== */
+function editUserDialog(userId) {
+  const u = USERS_CACHE.find(x => x.id === userId);
+  if (!u) return;
+  const html = `
+    <h3>✏ Редактировать: ${u.login}</h3>
+    <div class="form-row"><label>ФИО</label><input type="text" id="eu-fullName" value="${(u.fullName||'').replace(/"/g,'&quot;')}"></div>
+    <div class="row r-1-1" style="gap:10px; margin:0;">
+      <div class="form-row"><label>Логин</label><input type="text" id="eu-login" value="${u.login||''}"></div>
+      <div class="form-row"><label>Роль</label>
+        <select id="eu-role">
+          <option value="operator" ${u.role==='operator'?'selected':''}>Operator</option>
+          <option value="manager"  ${u.role==='manager' ?'selected':''}>Manager</option>
+          <option value="director" ${u.role==='director'?'selected':''}>Director</option>
+        </select>
+      </div>
+    </div>
+    <div class="row r-1-1" style="gap:10px; margin:0;">
+      <div class="form-row"><label>Email</label><input type="email" id="eu-email" value="${u.email||''}"></div>
+      <div class="form-row"><label>Телефон</label><input type="text" id="eu-phone" value="${u.phone||''}"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Отмена</button>
+      <button class="btn btn-primary" onclick="submitEditUser('${userId}')">Сохранить</button>
+    </div>
+  `;
+  showModal(html);
+}
+
+async function submitEditUser(userId) {
+  const body = {
+    id: userId,
+    fullName: (document.getElementById('eu-fullName')?.value || '').trim(),
+    login:    (document.getElementById('eu-login')?.value || '').trim(),
+    email:    (document.getElementById('eu-email')?.value || '').trim(),
+    phone:    (document.getElementById('eu-phone')?.value || '').trim(),
+    role:     document.getElementById('eu-role')?.value,
+  };
+  try {
+    const r = await fetch('/api/users', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + STATE.token },
+      body: JSON.stringify(body),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.message || j.error);
+    toast('✓ Сохранено', 'success');
+    closeModal();
+    await loadUsers();
+    renderPage(STATE.page);
+  } catch (e) {
+    toast('Ошибка: ' + e.message, 'danger');
+  }
+}
+
+/* ===== Change password dialog ===== */
+function changePwdDialog(userId) {
+  const u = USERS_CACHE.find(x => x.id === userId);
+  if (!u) return;
+  const html = `
+    <h3>🔑 Сменить пароль</h3>
+    <p class="sub" style="font-size:12.5px; color:var(--text-dim);">Пользователь: <b>${u.fullName}</b> (${u.login})</p>
+    <div class="form-row" style="margin-top:14px;"><label>Новый пароль *</label>
+      <div class="pwd-wrap">
+        <input type="text" id="cp-pwd" placeholder="Не менее 4 символов" autocomplete="off">
+        <button type="button" class="pwd-toggle visible" id="cp-pwd-eye" onclick="togglePwd('cp-pwd','cp-pwd-eye')">
+          <svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          <svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/></svg>
+        </button>
+      </div>
+    </div>
+    <div style="display:flex; gap:6px; margin-top:8px;">
+      <button class="btn" onclick="generateRandomPwd()" style="font-size:11.5px;">🎲 Сгенерировать</button>
+    </div>
+    <div style="padding:10px 12px; background:var(--warning-soft); border-left:3px solid var(--warning); border-radius:8px; font-size:11.5px; color:var(--text-dim); margin-top:12px;">
+      ⚠ Запомните и передайте новый пароль пользователю. Старый пароль больше работать не будет.
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Отмена</button>
+      <button class="btn btn-primary" onclick="submitChangePwd('${userId}')">Сменить пароль</button>
+    </div>
+  `;
+  showModal(html);
+  setTimeout(() => generateRandomPwd(), 50);
+}
+
+function generateRandomPwd() {
+  const inp = document.getElementById('cp-pwd');
+  if (!inp) return;
+  const chars = 'abcdefghkmnpqrstuvwxyz23456789';
+  let s = ''; for (let i = 0; i < 10; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  inp.value = s;
+}
+
+async function submitChangePwd(userId) {
+  const pwd = document.getElementById('cp-pwd')?.value || '';
+  if (pwd.length < 4) {
+    toast('Пароль должен быть не менее 4 символов', 'warning');
+    return;
+  }
+  try {
+    const r = await fetch('/api/users', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + STATE.token },
+      body: JSON.stringify({ id: userId, password: pwd }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.message || j.error);
+    toast(`✓ Пароль изменён. Новый пароль: ${pwd}`, 'success');
+    closeModal();
+  } catch (e) {
+    toast('Ошибка: ' + e.message, 'danger');
+  }
+}
+
+/* ===== Delete user ===== */
+async function deleteUser(userId) {
+  const u = USERS_CACHE.find(x => x.id === userId);
+  if (!u) return;
+  if (!confirm(`Удалить пользователя "${u.fullName}" (${u.login})?\n\nЭто действие необратимо.`)) return;
+  try {
+    const r = await fetch('/api/users', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + STATE.token },
+      body: JSON.stringify({ id: userId }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.message || j.error);
+    toast(`✓ Пользователь ${u.login} удалён`, 'success');
+    await loadUsers();
+    renderPage(STATE.page);
+  } catch (e) {
+    toast('Ошибка: ' + e.message, 'danger');
+  }
 }
 
 function editUserDepts(userId) {
