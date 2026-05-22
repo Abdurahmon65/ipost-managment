@@ -742,6 +742,18 @@
     font-family: 'JetBrains Mono', monospace;
   }
 
+  /* SCOUT MAP: pulsing recommendation marker */
+  @keyframes ping {
+    0%   { transform: scale(1);   opacity: 0.55; }
+    75%  { transform: scale(2);   opacity: 0;    }
+    100% { transform: scale(2.5); opacity: 0;    }
+  }
+  .scout-rec-marker, .scout-branch-marker { background: transparent !important; border: none !important; }
+
+  @media (max-width: 880px) {
+    [id^="scout-map-"][id$="-container"] > div { grid-template-columns: 1fr !important; }
+  }
+
   /* MAP REGION SIDEBAR */
   .r-item:hover {
     background: var(--panel-3) !important;
@@ -5920,10 +5932,12 @@ function renderScoutResults(data) {
   const grid = el('div', { class: 'row r-1-1', style: 'margin-top:14px;' });
   for (const rec of (data.recommendations || [])) {
     const conf = Math.round((rec.confidence || 0) * 100);
-    const card = el('div', { class: 'card', style: 'padding:18px; border-left:3px solid var(--accent);' });
+    const cardId = 'scout-card-' + rec.rank;
+    const mapId  = 'scout-map-'  + rec.rank;
+    const card = el('div', { class: 'card', style: 'padding:18px; border-left:3px solid var(--success); cursor:pointer;', id: cardId });
     card.innerHTML = `
-      <div style="display:flex; align-items:flex-start; gap:14px;">
-        <div style="width:42px; height:42px; border-radius:11px; background:linear-gradient(135deg,var(--brand),var(--brand-deep)); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:16px; flex-shrink:0;">${rec.rank}</div>
+      <div style="display:flex; align-items:flex-start; gap:14px;" onclick="toggleScoutMap('${rec.rank}')">
+        <div style="width:42px; height:42px; border-radius:11px; background:linear-gradient(135deg,#2CE0A8,#00A872); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:16px; flex-shrink:0;">${rec.rank}</div>
         <div style="flex:1;">
           <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
             <div style="font-weight:700; font-size:15px;">${rec.district || '—'}</div>
@@ -5940,10 +5954,21 @@ function renderScoutResults(data) {
             ${(rec.reasons || []).map(r => `<li style="color:var(--success); margin-bottom:2px;"><span style="color:var(--text);">${r}</span></li>`).join('')}
             ${(rec.risks || []).map(r => `<li style="color:var(--warning); margin-bottom:2px;"><span style="color:var(--text-dim);">⚠ ${r}</span></li>`).join('')}
           </ul>
-          ${rec.coordinates ? `<button class="btn" style="margin-top:10px; font-size:11.5px; padding:6px 12px;" onclick="window.open('https://yandex.ru/maps/?ll=${rec.coordinates.lng},${rec.coordinates.lat}&z=14&pt=${rec.coordinates.lng},${rec.coordinates.lat}','_blank')">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-            Открыть в Яндекс.Картах
-          </button>` : ''}
+          <div style="display:flex; gap:6px; margin-top:12px; flex-wrap:wrap;" onclick="event.stopPropagation();">
+            <button class="btn btn-primary" style="font-size:11.5px; padding:6px 12px;" onclick="toggleScoutMap('${rec.rank}')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+              Показать на карте
+            </button>
+            ${rec.coordinates ? `<button class="btn" style="font-size:11.5px; padding:6px 12px;" onclick="window.open('https://yandex.ru/maps/?ll=${rec.coordinates.lng},${rec.coordinates.lat}&z=14&pt=${rec.coordinates.lng},${rec.coordinates.lat}','_blank')">
+              Яндекс.Карты
+            </button>` : ''}
+          </div>
+        </div>
+      </div>
+      <div id="${mapId}-container" style="display:none; margin-top:16px; padding-top:14px; border-top:1px dashed var(--border);">
+        <div style="display:grid; grid-template-columns: 1fr 280px; gap:14px;">
+          <div id="${mapId}" style="height:320px; border-radius:12px; overflow:hidden; background:var(--panel-2);"></div>
+          <div id="${mapId}-list" style="overflow-y:auto; max-height:320px;"></div>
         </div>
       </div>
     `;
@@ -5956,6 +5981,141 @@ function renderScoutResults(data) {
     }));
   }
   return wrap;
+}
+
+/* ============ MINI-MAP for AI-Scout recommendation ============ */
+const __scoutMaps = {};   // rank → Leaflet instance
+
+function kmDistance(a, b) {
+  const R = 6371;
+  const dLat = (b.lat - a.lat) * Math.PI / 180;
+  const dLng = (b.lng - a.lng) * Math.PI / 180;
+  const la1 = a.lat * Math.PI / 180, la2 = b.lat * Math.PI / 180;
+  const h = Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLng/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+function toggleScoutMap(rank) {
+  const rec = (STATE.scoutResult?.recommendations || []).find(r => String(r.rank) === String(rank));
+  if (!rec || !rec.coordinates) return;
+  const container = document.getElementById('scout-map-' + rank + '-container');
+  const mapDiv    = document.getElementById('scout-map-' + rank);
+  const listDiv   = document.getElementById('scout-map-' + rank + '-list');
+  if (!container || !mapDiv) return;
+
+  const isOpen = container.style.display !== 'none';
+  if (isOpen) {
+    container.style.display = 'none';
+    if (__scoutMaps[rank]) { __scoutMaps[rank].remove(); delete __scoutMaps[rank]; }
+    return;
+  }
+  container.style.display = 'block';
+
+  // Init Leaflet
+  setTimeout(() => {
+    if (__scoutMaps[rank]) { __scoutMaps[rank].remove(); }
+    const m = L.map(mapDiv, { zoomControl: true, attributionControl: false })
+      .setView([rec.coordinates.lat, rec.coordinates.lng], 11);
+    const tileUrl = STATE.theme === 'dark'
+      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+      : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+    L.tileLayer(tileUrl, { maxZoom: 18 }).addTo(m);
+    __scoutMaps[rank] = m;
+
+    // 1) Зелёный маркер предлагаемой локации (большой, пульсирующий)
+    const greenIcon = L.divIcon({
+      html: `
+        <div style="position:relative; width:36px; height:36px;">
+          <div style="position:absolute; inset:-8px; border-radius:50%; background:#2CE0A8; opacity:0.3; animation: ping 2s cubic-bezier(0,0,0.2,1) infinite;"></div>
+          <div style="position:relative; width:36px; height:36px; border-radius:50%; background:linear-gradient(135deg,#2CE0A8,#00A872); border:3px solid #fff; box-shadow:0 4px 14px rgba(44,224,168,0.6); display:flex; align-items:center; justify-content:center; color:#fff; font-weight:800; font-size:14px;">${rec.rank}</div>
+        </div>`,
+      className: 'scout-rec-marker',
+      iconSize: [36, 36], iconAnchor: [18, 18],
+    });
+    L.marker([rec.coordinates.lat, rec.coordinates.lng], { icon: greenIcon })
+      .addTo(m)
+      .bindPopup(`<div style="font-family:Inter; min-width:180px;">
+        <div style="font-weight:700; font-size:13px; color:#00A872;">🎯 Рекомендуемое место</div>
+        <div style="font-size:11px; color:#666; margin-top:4px;">
+          <b>${rec.district}</b><br>
+          Прогноз: <b>${fmt(rec.expected_monthly_orders)} зак/мес</b><br>
+          Окупаемость: <b>${rec.payback_months} мес</b>
+        </div>
+      </div>`, { autoClose: false }).openPopup();
+
+    // 2) Находим 3 ближайших ДЕЙСТВУЮЩИХ филиала
+    const branches = ((STATE.live && STATE.live.branches) || [])
+      .filter(b => !b.closeDate && typeof b.lat === 'number' && typeof b.lng === 'number')
+      .map(b => ({ ...b, _km: kmDistance({lat:rec.coordinates.lat, lng:rec.coordinates.lng}, b) }))
+      .sort((a, b) => a._km - b._km)
+      .slice(0, 3);
+
+    // 3) Синие маркеры существующих филиалов + линии от предлагаемой точки
+    branches.forEach((b, i) => {
+      // Marker
+      const blueIcon = L.divIcon({
+        html: `<div style="width:24px; height:24px; border-radius:50%; background:linear-gradient(135deg,#3CCBFF,#0033CC); border:2px solid #fff; box-shadow:0 3px 10px rgba(0,51,204,0.5); display:flex; align-items:center; justify-content:center; color:#fff; font-weight:700; font-size:11px;">${i+1}</div>`,
+        className: 'scout-branch-marker',
+        iconSize: [24, 24], iconAnchor: [12, 12],
+      });
+      L.marker([b.lat, b.lng], { icon: blueIcon })
+        .addTo(m)
+        .bindPopup(`<div style="font-family:Inter; min-width:160px;">
+          <div style="font-weight:700; font-size:12px; color:#0033CC;">${b.name || '—'}</div>
+          <div style="font-size:11px; color:#666; margin-top:3px;">
+            ID: ${b.id}<br>
+            ${b.manager ? 'Менеджер: ' + b.manager + '<br>' : ''}
+            <b style="color:#2CE0A8;">${b._km.toFixed(1)} км</b> от рекомендации
+          </div>
+        </div>`);
+
+      // Линия-расстояние
+      L.polyline([
+        [rec.coordinates.lat, rec.coordinates.lng],
+        [b.lat, b.lng]
+      ], { color:'#2CE0A8', weight:2, opacity:0.5, dashArray:'5, 8' }).addTo(m);
+    });
+
+    // Fit bounds для всех 4 точек
+    if (branches.length > 0) {
+      const bounds = L.latLngBounds([
+        [rec.coordinates.lat, rec.coordinates.lng],
+        ...branches.map(b => [b.lat, b.lng])
+      ]);
+      m.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 });
+    }
+
+    // 4) Список расстояний справа
+    if (listDiv) {
+      listDiv.innerHTML = `
+        <div style="font-weight:700; font-size:12.5px; margin-bottom:10px; color:var(--text);">
+          🎯 Ближайшие ${branches.length} филиала
+        </div>
+        ${branches.length === 0 ? `
+          <div style="padding:20px; text-align:center; color:var(--text-muted); font-size:12px;">
+            Нет действующих филиалов поблизости
+          </div>
+        ` : branches.map((b, i) => `
+          <div style="display:flex; align-items:center; gap:10px; padding:10px; background:var(--panel-2); border-radius:10px; margin-bottom:8px; border-left:3px solid #3CCBFF;">
+            <div style="width:28px; height:28px; border-radius:50%; background:linear-gradient(135deg,#3CCBFF,#0033CC); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:11px; flex-shrink:0;">${i+1}</div>
+            <div style="flex:1; min-width:0;">
+              <div style="font-weight:600; font-size:12px; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${b.name || '—'}</div>
+              <div style="font-size:10.5px; color:var(--text-muted); font-family:JetBrains Mono;">${b.id}${b.manager ? ' · '+b.manager : ''}</div>
+            </div>
+            <div style="text-align:right; flex-shrink:0;">
+              <div style="font-family:JetBrains Mono; font-weight:700; font-size:14px; color:#2CE0A8;">${b._km.toFixed(1)}</div>
+              <div style="font-size:10px; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px;">км</div>
+            </div>
+          </div>
+        `).join('')}
+        <div style="margin-top:10px; padding:10px; background:var(--accent-soft); border-radius:8px; font-size:10.5px; color:var(--text-dim); line-height:1.5;">
+          🟢 Зелёный — предлагаемое место<br>
+          🔵 Синие — ближайшие 3 ПВЗ<br>
+          - - - линия — расстояние
+        </div>
+      `;
+    }
+  }, 50);
 }
 
 async function runScout() {
