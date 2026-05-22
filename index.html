@@ -826,6 +826,17 @@
     color: var(--brand-2);
     border: 1px solid rgba(60,203,255,0.3);
   }
+  .banner-region {
+    position: absolute; bottom: 10px; right: 10px;
+    z-index: 4;
+    padding: 4px 9px;
+    border-radius: 7px;
+    background: rgba(0,0,0,0.55);
+    backdrop-filter: blur(8px);
+    font-size: 11px; font-weight: 700;
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.2);
+  }
   .banner-body { padding: 14px 14px 16px; }
   .banner-title {
     font-weight: 700; font-size: 14px;
@@ -1789,6 +1800,52 @@ const CUSTOMERS = [
   { name: 'Розничные клиенты',type: 'B2C', orders: 26840, ltv: 3920, status: 'mass' },
 ];
 
+/* ==================== REGION NAME RESOLVER (handles PVZ aliases) ==================== */
+const REGION_ALIASES = {
+  tashkent:           'Ташкент',
+  tashkent_city:      'Ташкент',
+  toshkent:           'Ташкент',
+  tashkent_region:    'Ташкентская область',
+  toshkent_viloyati:  'Ташкентская область',
+  samarkand:          'Самарканд',
+  samarqand:          'Самарканд',
+  bukhara:            'Бухара',
+  buxoro:             'Бухара',
+  fergana:            'Фергана',
+  fargona:            'Фергана',
+  'farg\'ona':        'Фергана',
+  andijan:            'Андижан',
+  andijon:            'Андижан',
+  namangan:           'Наманган',
+  qashqadaryo:        'Кашкадарья',
+  kashkadarya:        'Кашкадарья',
+  qashqadarya:        'Кашкадарья',
+  surxondaryo:        'Сурхандарья',
+  surkhandarya:       'Сурхандарья',
+  navoiy:             'Навои',
+  navoi:              'Навои',
+  jizzax:             'Джизак',
+  jizzakh:            'Джизак',
+  sirdaryo:           'Сырдарья',
+  syrdarya:           'Сырдарья',
+  xorazm:             'Хорезм',
+  khorezm:            'Хорезм',
+  khorazm:            'Хорезм',
+  karakalpak:         'Каракалпакстан',
+  karakalpakstan:     'Каракалпакстан',
+  qoraqalpogiston:    'Каракалпакстан',
+};
+function regionName(key) {
+  if (!key) return '—';
+  const k = String(key).toLowerCase().trim();
+  if (REGION_ALIASES[k]) return REGION_ALIASES[k];
+  // Try live regions
+  const lr = (STATE.live?.regions || []).find(r => r.key === key);
+  if (lr && lr.name && lr.name !== key) return lr.name;
+  // Capitalize fallback
+  return k.charAt(0).toUpperCase() + k.slice(1).replace(/_/g, ' ');
+}
+
 /* ==================== LIVE HELPERS ==================== */
 function timeFmt(ts) {
   try {
@@ -2443,7 +2500,7 @@ function renderHomePVZ(p) {
   } else {
     const sorted = [...liveBranches].sort((a,b) => (b.banner ? 1 : 0) - (a.banner ? 1 : 0)).slice(0, 8);
     for (const b of sorted) {
-      const regionName = (REGIONS.find(r => r.key === b.regionKey) || {}).name || b.regionKey || '—';
+      const rName = regionName(b.regionKey);
       const closedB = !!b.closeDate;
       const initial = (b.name || b.marking || '?')[0].toUpperCase();
       const hasBanner = !!(b.banner && String(b.banner).length > 10);
@@ -2457,7 +2514,7 @@ function renderHomePVZ(p) {
         </div>
         <div class="banner-body">
           <div class="banner-title">${b.name || '—'}</div>
-          <div class="banner-meta"><span>${regionName}</span><span class="dot">·</span><span>${b.manager || 'без менеджера'}</span></div>
+          <div class="banner-meta"><span class="pill brand" style="font-size:10px;">${rName}</span><span style="color:var(--text-muted);">${b.manager || 'без менеджера'}</span></div>
         </div>
       `}));
     }
@@ -2845,7 +2902,7 @@ function _old_renderHome_removed_keep_for_history() {
           <tr>
             <td><span style="font-weight:700; color:var(--text-muted);">${i+1}</span></td>
             <td><div style="font-weight:600;">${b.name || '—'}</div><div style="font-size:10.5px; color:var(--text-muted); font-family:'JetBrains Mono',monospace;">${b.id || ''}</div></td>
-            <td>${(REGIONS.find(r => r.key === b.regionKey) || {}).name || b.regionKey || '—'}</td>
+            <td>${regionName(b.regionKey)}</td>
             <td>${b.manager || '—'}</td>
             <td style="font-family:'JetBrains Mono',monospace; font-size:11px;">${b.openDate || '—'}</td>
             <td>${b.closeDate ? '<span class="pill warning">Закрыт</span>' : '<span class="pill success">Активен</span>'}</td>
@@ -3694,6 +3751,96 @@ function resetMapView() {
   });
 }
 
+/* ===== Branches page map ===== */
+let __branchesMap = null, __branchesMarkers = null, __branchesAll = [];
+
+async function initBranchesMap(branches) {
+  const elem = document.getElementById('branches-map');
+  if (!elem) return;
+  if (__branchesMap) { __branchesMap.remove(); __branchesMap = null; }
+
+  __branchesAll = branches.filter(b => typeof b.lat === 'number' && typeof b.lng === 'number');
+  if (!__branchesAll.length) {
+    elem.innerHTML = '<div style="padding:60px; text-align:center; color:var(--text-muted); font-size:13px;">Нет филиалов с GPS-координатами</div>';
+    return;
+  }
+
+  __branchesMap = L.map(elem, { zoomControl: true, attributionControl: false }).setView([41.5, 64.5], 6);
+  L.tileLayer(STATE.theme === 'dark'
+    ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+    : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+    { maxZoom: 18 }).addTo(__branchesMap);
+
+  // Region polygons (соединяет с GeoJSON если есть)
+  if (!__regionsGeoJSON) {
+    try {
+      const r = await fetch('/api/geo/regions');
+      if (r.ok) __regionsGeoJSON = await r.json();
+    } catch {}
+  }
+  if (__regionsGeoJSON) {
+    L.geoJSON(__regionsGeoJSON, {
+      style: () => ({ color: '#3CCBFF', weight: 1, fillColor: '#0033CC', fillOpacity: 0.07 }),
+      onEachFeature: (f, layer) => {
+        layer.bindTooltip(f.properties.name_ru || regionName(f.properties.key), { sticky: true });
+      }
+    }).addTo(__branchesMap);
+  }
+
+  __branchesMarkers = L.layerGroup().addTo(__branchesMap);
+  drawBranchesOnPageMap(__branchesAll);
+  // Fit bounds to all
+  const bounds = L.latLngBounds(__branchesAll.map(b => [b.lat, b.lng]));
+  __branchesMap.fitBounds(bounds, { padding: [30, 30] });
+
+  // Wire filters
+  document.getElementById('br-flt-all')?.addEventListener('click',    () => brFilter('all'));
+  document.getElementById('br-flt-active')?.addEventListener('click', () => brFilter('active'));
+  document.getElementById('br-flt-closed')?.addEventListener('click', () => brFilter('closed'));
+  document.getElementById('br-flt-banner')?.addEventListener('click', () => brFilter('banner'));
+}
+
+function drawBranchesOnPageMap(branches) {
+  if (!__branchesMarkers) return;
+  __branchesMarkers.clearLayers();
+  for (const b of branches) {
+    const closed = !!b.closeDate;
+    const hasBanner = !!(b.banner && String(b.banner).length > 10);
+    L.circleMarker([b.lat, b.lng], {
+      radius: 6,
+      color: closed ? '#FF5577' : (hasBanner ? '#FFB840' : '#2CE0A8'),
+      weight: 2,
+      fillColor: closed ? '#FF5577' : (hasBanner ? '#FFB840' : '#2CE0A8'),
+      fillOpacity: 0.8,
+    })
+      .addTo(__branchesMarkers)
+      .bindPopup(`
+        <div style="font-family:Inter; min-width:200px;">
+          ${hasBanner ? `<img src="${b.banner}" style="width:100%; height:100px; object-fit:cover; border-radius:8px; margin-bottom:8px;" onerror="this.remove();">` : ''}
+          <div style="font-weight:700; font-size:13px; color:#0033CC;">${b.name || '—'}</div>
+          <div style="font-size:11px; color:#666; margin-top:4px;">
+            ID: <b>${b.id}</b>${b.marking ? ' · ' + b.marking : ''}<br>
+            📍 ${regionName(b.regionKey)}<br>
+            ${b.manager ? '👤 ' + b.manager + '<br>' : ''}
+            ${b.phone1 ? '📞 ' + b.phone1 + '<br>' : ''}
+            ${b.address ? '<span style="font-size:10.5px; color:#888;">' + b.address + '</span><br>' : ''}
+            ${closed ? '<b style="color:#FF5577;">Закрыт ' + (b.closeDate || '') + '</b>' : '<b style="color:#00A872;">Активен</b>'}
+          </div>
+        </div>
+      `);
+  }
+}
+
+function brFilter(mode) {
+  let filtered = __branchesAll;
+  if (mode === 'active') filtered = __branchesAll.filter(b => !b.closeDate);
+  if (mode === 'closed') filtered = __branchesAll.filter(b => !!b.closeDate);
+  if (mode === 'banner') filtered = __branchesAll.filter(b => b.banner && String(b.banner).length > 10);
+  drawBranchesOnPageMap(filtered);
+  document.querySelectorAll('#br-flt-all, #br-flt-active, #br-flt-closed, #br-flt-banner').forEach(b => b.classList.remove('active'));
+  document.getElementById('br-flt-' + mode)?.classList.add('active');
+}
+
 function filterMapLayer(mode) {
   const branches = (STATE.live && STATE.live.branches) || [];
   let filtered = branches;
@@ -4049,6 +4196,27 @@ function renderBranches() {
   `})));
   p.appendChild(kg);
 
+  // === Branches map (full network view) ===
+  const mapCard = el('div', { class: 'card', style: 'padding:0; overflow:hidden; margin-bottom:18px;' });
+  mapCard.innerHTML = `
+    <div class="card-head" style="padding:14px 18px; margin-bottom:0; border-bottom:1px solid var(--border);">
+      <div>
+        <div class="h">Карта всех филиалов</div>
+        <div class="sub">${liveBranches.filter(b => typeof b.lat === 'number' && typeof b.lng === 'number').length} филиалов с GPS · кликните маркер для деталей</div>
+      </div>
+      <div class="card-head-actions">
+        <button class="chip active" id="br-flt-all">Все</button>
+        <button class="chip" id="br-flt-active">Активные</button>
+        <button class="chip" id="br-flt-closed">Закрытые</button>
+        <button class="chip" id="br-flt-banner">С баннером</button>
+      </div>
+    </div>
+    <div id="branches-map" style="height:420px;"></div>
+  `;
+  p.appendChild(mapCard);
+
+  setTimeout(() => initBranchesMap(liveBranches), 50);
+
   // Branch banner gallery — show recent branches with their banner image
   const galleryCard = el('div', { class: 'card' });
   galleryCard.style.padding = '18px';
@@ -4064,7 +4232,7 @@ function renderBranches() {
   if (liveBranches.length) {
     const sortedBr = [...liveBranches].sort((a,b) => (b.banner ? 1 : 0) - (a.banner ? 1 : 0)).slice(0, 24);
     for (const b of sortedBr) {
-      const regionName = (REGIONS.find(r => r.key === b.regionKey) || {}).name || b.regionKey || '—';
+      const rName = regionName(b.regionKey);
       const closed = !!b.closeDate;
       const initial = (b.name || b.marking || '?')[0].toUpperCase();
       const hasBanner = !!(b.banner && String(b.banner).length > 10);
@@ -4074,14 +4242,13 @@ function renderBranches() {
           <div class="banner-placeholder">${initial}</div>
           <div class="banner-overlay"></div>
           <div class="banner-status">${closed ? '<span class="pill warning">Закрыт</span>' : '<span class="pill success">● Активен</span>'}</div>
+          <div class="banner-region">📍 ${rName}</div>
           ${b.marking ? `<div class="banner-marking">${b.marking}</div>` : ''}
         </div>
         <div class="banner-body">
           <div class="banner-title">${b.name || '—'}</div>
           <div class="banner-meta">
-            <span>${regionName}</span>
-            <span class="dot">·</span>
-            <span>${b.manager || 'без менеджера'}</span>
+            <span style="color:var(--text-dim);">👤 ${b.manager || 'без менеджера'}</span>
           </div>
           ${b.phone1 ? `<div class="banner-phone">📞 ${b.phone1}</div>` : ''}
         </div>
@@ -4109,12 +4276,12 @@ function renderBranches() {
       <thead><tr><th>ID</th><th>Филиал</th><th>Регион</th><th>Менеджер</th><th>Телефон</th><th>Открыт</th><th>Аренда</th><th>Статус</th></tr></thead>
       <tbody id="branches-tbody">
         ${liveBranches.map(b => {
-          const regionName = (REGIONS.find(r => r.key === b.regionKey) || {}).name || b.regionKey || '—';
+          const rName = regionName(b.regionKey);
           return `
-          <tr data-text="${(b.id+' '+b.name+' '+b.manager+' '+(b.address||'')+' '+regionName).toLowerCase()}">
+          <tr data-text="${(b.id+' '+b.name+' '+b.manager+' '+(b.address||'')+' '+rName).toLowerCase()}">
             <td style="font-family:JetBrains Mono; font-weight:700; font-size:11px;">${b.id || '—'}</td>
             <td><b>${b.name || '—'}</b><div style="font-size:10px; color:var(--text-muted);">${b.address || ''}</div></td>
-            <td>${regionName}</td>
+            <td><span class="pill brand">${rName}</span></td>
             <td>${b.manager || '—'}</td>
             <td style="font-family:JetBrains Mono; font-size:11px;">${b.phone1 || '—'}</td>
             <td style="font-family:JetBrains Mono; font-size:11px;">${b.openDate || '—'}</td>
