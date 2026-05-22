@@ -36,6 +36,7 @@ function sanitizePlan(body) {
     branchId:  String(body.branchId || '').trim(),
     month:     String(body.month || '').trim(),   // 'YYYY-MM'
     targets: {
+      kg:            Number(body.targets?.kg)            || 0,   // ← primary metric: kg of cargo
       orders:        Number(body.targets?.orders)        || 0,
       revenue:       Number(body.targets?.revenue)       || 0,   // UZS
       deliveries:    Number(body.targets?.deliveries)    || 0,
@@ -133,7 +134,7 @@ export default async function handler(req, res) {
         targetId: plan.branchId,
         targetName: 'Plan ' + plan.month + ' for ' + plan.branchId,
         who: (me.fullName || me.login) + ' (director)',
-        details: 'Targets: orders=' + plan.targets.orders + ', revenue=' + plan.targets.revenue,
+        details: 'Targets: kg=' + plan.targets.kg + ', orders=' + plan.targets.orders + ', revenue=' + plan.targets.revenue,
       });
       return res.status(200).json({ plan, canEdit: true });
     }

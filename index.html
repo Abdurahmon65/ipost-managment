@@ -6261,12 +6261,16 @@ function aiGeneratePlanPreview() {
   const next = nextMonthLabel();
   // Save preview to STATE for later approval
   STATE.planPreview = { month: next, proposals };
+  const avgKg = Math.round(proposals.reduce((s,p)=>s+(p.targets.kg||0),0)/proposals.length);
+  const totalKg = proposals.reduce((s,p)=>s+(p.targets.kg||0),0);
   return `📅 <b>Сгенерированы планы на месяц ${next}</b> для ${active.length} активных филиалов.<br><br>
-    Средние цели в месяц:<br>
+    Средние цели на филиал в месяц:<br>
+    • <b>📦 Вес груза: ${fmt(avgKg)} кг</b> <span style="color:var(--text-muted);">(основная метрика)</span><br>
     • Заказы: <b>${fmt(Math.round(proposals.reduce((s,p)=>s+p.targets.orders,0)/proposals.length))}</b><br>
     • Выручка: <b>${fmtMoney(proposals.reduce((s,p)=>s+p.targets.revenue,0)/proposals.length/1e6)} млн UZS</b><br>
     • Доставки: <b>${fmt(Math.round(proposals.reduce((s,p)=>s+p.targets.deliveries,0)/proposals.length))}</b><br>
     • Новые клиенты: <b>${fmt(Math.round(proposals.reduce((s,p)=>s+p.targets.newCustomers,0)/proposals.length))}</b><br><br>
+    Суммарно по сети: <b>${fmt(totalKg)} кг</b> груза в месяц.<br><br>
     🔍 <b>Откройте раздел «ПВЗ → Планы»</b> для просмотра и утверждения.<br>
     Или скажите «<b>утвердить все планы</b>» — план применится для всех ${active.length} филиалов.`;
 }
@@ -6277,21 +6281,28 @@ function nextMonthLabel() {
 }
 
 function generateMonthlyPlans(activeBranches) {
-  // Use simple heuristic: regions with more branches get higher per-branch targets;
-  // existing branches with longer history (older openDate) get larger targets.
+  // Region-based heuristic for monthly targets.
+  // KG is the primary metric — chosen as the focal goal for each PVZ.
   const out = [];
   for (const b of activeBranches) {
-    // base targets vary by region
     const regionFactor = b.regionKey === 'tashkent' ? 1.6
                        : b.regionKey === 'samarkand' || b.regionKey === 'fergana' ? 1.2
                        : b.regionKey === 'namangan' || b.regionKey === 'andijan' || b.regionKey === 'bukhara' ? 1.0
-                       : 0.75;
-    const baseOrders = Math.round(120 * regionFactor);
-    const orders = baseOrders + Math.round((b.id || '').length * 1.7);  // small variation
-    const revenue = orders * 145000;     // avg check ~145K UZS
-    const deliveries = Math.round(orders * 0.88);
-    const newCustomers = Math.max(5, Math.round(orders * 0.06));
-    const avgRating = 4.7;
+                       : b.regionKey === 'qashqadaryo' || b.regionKey === 'navoiy' || b.regionKey === 'xorazm' || b.regionKey === 'khorezm' ? 0.85
+                       : 0.7;
+
+    // Variability based on branch id (deterministic per branch)
+    const variance = Math.round(((b.id || '').length * 11 + (b.marking || '').length * 7) % 40);
+
+    // PRIMARY: KG per month — base 800 kg × region factor + variance
+    const kg          = Math.round(800 * regionFactor + variance * 5);
+    // SECONDARY: derived from kg (avg parcel ~6 kg)
+    const orders      = Math.round(kg / 6);
+    const revenue     = orders * 145000;                  // avg check ~145K UZS
+    const deliveries  = Math.round(orders * 0.88);
+    const newCustomers= Math.max(5, Math.round(orders * 0.06));
+    const avgRating   = 4.7;
+
     out.push({
       branchId: b.id,
       branchName: b.name || '',
@@ -6299,7 +6310,7 @@ function generateMonthlyPlans(activeBranches) {
       manager:   b.manager,
       marking:   b.marking,
       month: nextMonthLabel(),
-      targets: { orders, revenue, deliveries, newCustomers, avgRating },
+      targets: { kg, orders, revenue, deliveries, newCustomers, avgRating },
       notes: 'AI-предложение. Скорректируйте в UI перед утверждением.',
     });
   }
@@ -6363,9 +6374,15 @@ function renderPlans() {
           даже с аккаунта администратора. Снять блокировку можно только из этого центра.
         </div>
       </div>
-      <div style="text-align:right;">
-        <div style="font-family:JetBrains Mono; font-weight:700; font-size:22px; color:var(--accent);">${plans.filter(p => p.locked).length}</div>
-        <div style="font-size:10.5px; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px;">утверждено</div>
+      <div style="display:flex; gap:24px; text-align:right;">
+        <div>
+          <div style="font-family:JetBrains Mono; font-weight:700; font-size:22px; color:var(--accent);">${plans.filter(p => p.locked).length}</div>
+          <div style="font-size:10.5px; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px;">утверждено</div>
+        </div>
+        <div>
+          <div style="font-family:JetBrains Mono; font-weight:700; font-size:22px; color:var(--warning);">${fmt(plans.filter(p => p.locked).reduce((s,p) => s + (p.targets?.kg || 0), 0))}</div>
+          <div style="font-size:10.5px; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px;">кг план / мес</div>
+        </div>
       </div>
     </div>
   `;
@@ -6400,19 +6417,21 @@ function renderPlans() {
     const approvedCard = el('div', { class: 'card' });
     const tbl = el('table', { class: 'table' });
     tbl.innerHTML = `
-      <thead><tr><th>Филиал</th><th>Месяц</th><th>Заказы</th><th>Выручка</th><th>Доставки</th><th>Утвердил</th><th>Блокировка</th><th></th></tr></thead>
+      <thead><tr><th>Филиал</th><th>Месяц</th><th>📦 Вес (кг)</th><th>Заказы</th><th>Выручка</th><th>Доставки</th><th>Утвердил</th><th>Блок.</th><th></th></tr></thead>
       <tbody>
         ${plans.map(pl => {
           const br = branches.find(b => b.id === pl.branchId);
           const approvedDate = pl.approvedAt ? new Date(pl.approvedAt).toLocaleDateString('ru-RU') : '—';
+          const kg = pl.targets.kg || 0;
           return `<tr>
             <td><b>${br ? br.name : pl.branchId}</b><div style="font-size:10.5px; color:var(--text-muted); font-family:JetBrains Mono;">${pl.branchId}</div></td>
             <td style="font-family:JetBrains Mono;">${pl.month}</td>
-            <td style="font-family:JetBrains Mono; font-weight:700;">${fmt(pl.targets.orders)}</td>
+            <td style="font-family:JetBrains Mono; font-weight:700; color:var(--warning); font-size:14px;">${fmt(kg)}</td>
+            <td style="font-family:JetBrains Mono; font-weight:600;">${fmt(pl.targets.orders)}</td>
             <td style="font-family:JetBrains Mono; color:var(--accent);">${fmtMoney(pl.targets.revenue/1e6)}M</td>
             <td style="font-family:JetBrains Mono;">${fmt(pl.targets.deliveries)}</td>
             <td style="font-size:11px;">${pl.approvedBy}<div style="font-size:10px; color:var(--text-muted);">${approvedDate} · v${pl.version||1}</div></td>
-            <td>${pl.locked ? '<span class="pill danger">🔒 LOCKED</span>' : '<span class="pill muted">unlocked</span>'}</td>
+            <td>${pl.locked ? '<span class="pill danger">🔒</span>' : '<span class="pill muted">—</span>'}</td>
             <td><button class="btn" style="padding:4px 10px; font-size:11px;" onclick="deletePlan('${pl.id}')">Снять</button></td>
           </tr>`;
         }).join('')}
@@ -6430,12 +6449,13 @@ function renderPlans() {
     prevCard.style.borderLeft = '3px solid var(--accent)';
     const tbl = el('table', { class: 'table' });
     tbl.innerHTML = `
-      <thead><tr><th>Филиал</th><th>Регион</th><th>Заказы</th><th>Выручка</th><th>Доставки</th><th>Нов. клиенты</th></tr></thead>
+      <thead><tr><th>Филиал</th><th>Регион</th><th>📦 Вес (кг)</th><th>Заказы</th><th>Выручка</th><th>Доставки</th><th>Нов. клиенты</th></tr></thead>
       <tbody>
         ${STATE.planPreview.proposals.slice(0, 30).map(pr => `<tr>
           <td><b>${pr.branchName || pr.branchId}</b><div style="font-size:10.5px; color:var(--text-muted); font-family:JetBrains Mono;">${pr.branchId}</div></td>
-          <td>${(REGIONS.find(r => r.key === pr.regionKey) || {}).name || pr.regionKey || '—'}</td>
-          <td style="font-family:JetBrains Mono; font-weight:700;">${fmt(pr.targets.orders)}</td>
+          <td><span class="pill brand">${regionName(pr.regionKey)}</span></td>
+          <td style="font-family:JetBrains Mono; font-weight:700; color:var(--warning); font-size:14px;">${fmt(pr.targets.kg || 0)}</td>
+          <td style="font-family:JetBrains Mono; font-weight:600;">${fmt(pr.targets.orders)}</td>
           <td style="font-family:JetBrains Mono; color:var(--accent);">${fmtMoney(pr.targets.revenue/1e6)}M</td>
           <td style="font-family:JetBrains Mono;">${fmt(pr.targets.deliveries)}</td>
           <td style="font-family:JetBrains Mono;">${fmt(pr.targets.newCustomers)}</td>
