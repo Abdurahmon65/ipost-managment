@@ -742,6 +742,109 @@
     font-family: 'JetBrains Mono', monospace;
   }
 
+  /* ==================== LOGISTICS COMING-SOON SCREEN ==================== */
+  .logistics-cs {
+    position: relative;
+    min-height: 55vh;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+    border-radius: 18px;
+    margin-top: 10px;
+  }
+  .logistics-cs-bg {
+    position: absolute; inset: 0;
+    overflow: hidden; user-select: none; pointer-events: none;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 18px;
+  }
+  .logistics-cs-bg::before, .logistics-cs-bg::after {
+    content: ''; position: absolute;
+    border-radius: 50%;
+    filter: blur(70px);
+    opacity: 0.35;
+  }
+  .logistics-cs-bg::before {
+    width: 400px; height: 400px;
+    background: radial-gradient(circle, var(--warning) 0%, transparent 70%);
+    top: -80px; left: 12%;
+  }
+  .logistics-cs-bg::after {
+    width: 500px; height: 500px;
+    background: radial-gradient(circle, var(--brand-2) 0%, transparent 70%);
+    bottom: -120px; right: 8%;
+    opacity: 0.2;
+  }
+  .logistics-cs-bg-text {
+    font-size: 110px; font-weight: 900;
+    letter-spacing: -3px;
+    background: linear-gradient(135deg, var(--brand) 0%, var(--brand-2) 100%);
+    -webkit-background-clip: text; background-clip: text;
+    color: transparent;
+    opacity: 0.10;
+    line-height: 0.9;
+    white-space: nowrap;
+  }
+  .logistics-cs-bg-text .go {
+    font-style: italic;
+    background: linear-gradient(135deg, var(--brand-2), var(--accent));
+    -webkit-background-clip: text; background-clip: text;
+    color: transparent;
+  }
+  .logistics-cs-bg-sub {
+    font-size: 26px; font-weight: 600;
+    letter-spacing: 6px;
+    color: var(--text-dim);
+    opacity: 0.09;
+    text-transform: uppercase;
+    margin-top: -16px;
+  }
+  .logistics-cs-bg-text.small { font-size: 64px; opacity: 0.06; letter-spacing: -1px; }
+  .logistics-cs-bg-sub.small  { font-size: 14px; opacity: 0.05; letter-spacing: 5px; margin-top: -10px; }
+
+  .logistics-cs-card {
+    position: relative; z-index: 2;
+    text-align: center;
+    padding: 44px 48px;
+    background: rgba(15, 23, 41, 0.78);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    border: 1px solid var(--border);
+    border-radius: 22px;
+    box-shadow: 0 24px 60px rgba(0, 15, 50, 0.5);
+    max-width: 480px;
+  }
+  :root[data-theme="light"] .logistics-cs-card { background: rgba(255, 255, 255, 0.86); }
+
+  .logistics-cs-icon {
+    width: 88px; height: 88px;
+    border-radius: 22px;
+    margin: 0 auto 24px;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, var(--warning) 0%, #FFD580 100%);
+    color: #fff;
+    box-shadow: 0 12px 32px rgba(255, 184, 64, 0.4),
+                inset 0 2px 0 rgba(255,255,255,0.3);
+  }
+  .logistics-cs-icon svg { width: 50px; height: 50px; }
+
+  .logistics-cs-title {
+    font-size: 24px; font-weight: 800;
+    color: var(--text);
+    margin-bottom: 10px;
+    letter-spacing: -0.4px;
+  }
+  .logistics-cs-badge { margin-bottom: 14px; }
+  .logistics-cs-sub {
+    font-size: 13px; color: var(--text-dim);
+    line-height: 1.7;
+    margin-bottom: 18px;
+  }
+  .logistics-cs-links {
+    display: flex; gap: 8px; justify-content: center;
+    flex-wrap: wrap; margin-bottom: 18px;
+  }
+  .logistics-cs-meta { padding-top: 12px; border-top: 1px dashed var(--border); }
+
   /* ==================== PLANS LOCKED SCREEN ==================== */
   .plans-locked {
     position: relative;
@@ -2656,6 +2759,12 @@ function renderHomePVZ(p) {
 
 /* ============ TAB: LOGISTICS SUMMARY ============ */
 function renderHomeLogistics(p) {
+  // Логистика — раздел зарезервирован под отдельный будущий проект
+  // (магистральные B2B перевозки). Данные курьерской здесь НЕ показываются.
+  renderComingSoonLogistics(p, 'Сводка логистики');
+  return;
+
+  // eslint-disable-next-line no-unreachable
   const live = STATE.live;
   const lk = live && live.kpis;
   const routes   = (live && live.dispatch && live.dispatch.routes)   || [];
@@ -3571,7 +3680,49 @@ function renderAnalyticsPVZ(p) {
 }
 
 /* ============ ANALYTICS: LOGISTICS ============ */
+/* ============ Logistics placeholder (separate future project) ============ */
+function renderComingSoonLogistics(parent, title) {
+  const box = el('div', { class: 'logistics-cs' });
+  box.innerHTML = `
+    <div class="logistics-cs-bg" aria-hidden="true">
+      <div class="logistics-cs-bg-text">iPost <span class="go">GO</span></div>
+      <div class="logistics-cs-bg-sub">fast and easy</div>
+      <div class="logistics-cs-bg-text small">iPost <span class="go">GO</span></div>
+      <div class="logistics-cs-bg-sub small">fast and easy</div>
+    </div>
+    <div class="logistics-cs-card">
+      <div class="logistics-cs-icon">
+        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 44h6l4-14h20l4 14h6M16 44a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM48 44a4 4 0 1 0 0 8 4 4 0 0 0 0-8z"/>
+          <rect x="22" y="14" width="20" height="16" rx="2"/>
+          <circle cx="32" cy="22" r="4" fill="currentColor" opacity="0.3"/>
+        </svg>
+      </div>
+      <div class="logistics-cs-title">${title || 'Логистика'}</div>
+      <div class="logistics-cs-badge"><span class="pill brand">🚧 В разработке</span></div>
+      <div class="logistics-cs-sub">
+        Раздел зарезервирован под <b>отдельный проект</b> — магистральная B2B доставка грузов между городами.
+        <br><br>
+        Данные курьерской и ПВЗ здесь <b>не отображаются</b> — для них есть свои разделы:
+      </div>
+      <div class="logistics-cs-links">
+        <button class="btn" onclick="goTo('courier')">🚴 Перейти в Курьерскую</button>
+        <button class="btn" onclick="goTo('branches')">🏢 Филиалы ПВЗ</button>
+      </div>
+      <div class="logistics-cs-meta">
+        <span style="font-size:10.5px; color:var(--text-muted); font-family:JetBrains Mono;">module: b2b-cargo · ETA Q3 2026</span>
+      </div>
+    </div>
+  `;
+  parent.appendChild(box);
+}
+
 function renderAnalyticsLogistics(p) {
+  // Логистика — раздел зарезервирован под отдельный будущий проект.
+  renderComingSoonLogistics(p, 'Аналитика логистики');
+  return;
+
+  // eslint-disable-next-line no-unreachable
   const live = STATE.live;
   const routes   = (live && live.dispatch && live.dispatch.routes)   || [];
   const orders   = (live && live.dispatch && live.dispatch.orders)   || [];
