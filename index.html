@@ -652,15 +652,39 @@
     background-clip: text; color: transparent;
   }
 
+  /* VIDEO BACKGROUND (shared between gate + locked screens) */
+  .bg-video {
+    position: absolute; inset: 0;
+    overflow: hidden;
+    z-index: 0;
+    pointer-events: none;
+  }
+  .bg-video video {
+    position: absolute;
+    top: 50%; left: 50%;
+    min-width: 100%; min-height: 100%;
+    width: auto; height: auto;
+    transform: translate(-50%, -50%);
+    object-fit: cover;
+    opacity: 0.55;
+  }
+  .bg-video::after {
+    content: ''; position: absolute; inset: 0;
+    background:
+      radial-gradient(800px 500px at 30% 30%, rgba(0,51,204,0.5), transparent 60%),
+      radial-gradient(800px 500px at 70% 70%, rgba(60,203,255,0.3), transparent 60%),
+      linear-gradient(180deg, rgba(6,8,15,0.45), rgba(6,8,15,0.78));
+    z-index: 1;
+  }
+
   /* LOGIN GATE */
   .gate {
     position: fixed; inset: 0; z-index: 500;
-    background:
-      radial-gradient(900px 600px at 20% 20%, rgba(0,51,204,0.35), transparent 60%),
-      radial-gradient(900px 600px at 80% 80%, rgba(60,203,255,0.25), transparent 60%),
-      var(--bg);
+    background: var(--bg);
     display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
   }
+  .gate .gate-card { position: relative; z-index: 2; }
   .gate-card {
     width: 380px; max-width: 92vw;
     background: var(--panel); border: 1px solid var(--border);
@@ -789,7 +813,9 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
     gap: 5px 28px;
+    z-index: 2;
   }
+  .logistics-cs-card { z-index: 3 !important; }
   .logistics-cs-bg .watermark span {
     font-size: 18px; font-weight: 800;
     letter-spacing: 3px;
@@ -892,7 +918,9 @@
     grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
     gap: 6px 32px;
     opacity: 0.6;
+    z-index: 2;
   }
+  .plans-locked-card { z-index: 3 !important; }
   .plans-locked-bg .watermark span {
     font-size: 22px; font-weight: 800;
     letter-spacing: 4px;
@@ -1396,6 +1424,9 @@
 
 <!-- LOGIN GATE -->
 <div class="gate" id="gate">
+  <div class="bg-video" aria-hidden="true">
+    <video src="bg-truck.mp4" autoplay muted loop playsinline></video>
+  </div>
   <div class="gate-card">
     <div class="gate-logo">
       <div class="ipost-logo">
@@ -3694,6 +3725,9 @@ function renderComingSoonLogistics(parent, title) {
   }
   box.innerHTML = `
     <div class="logistics-cs-bg" aria-hidden="true">
+      <div class="bg-video">
+        <video src="bg-truck.mp4" autoplay muted loop playsinline></video>
+      </div>
       <div class="watermark">${watermarkCells}</div>
     </div>
     <div class="logistics-cs-card">
@@ -6645,6 +6679,9 @@ function renderPlans() {
   locked.innerHTML = `
     <div class="plans-locked-wrap">
       <div class="plans-locked-bg" aria-hidden="true">
+        <div class="bg-video">
+          <video src="bg-truck.mp4" autoplay muted loop playsinline></video>
+        </div>
         <div class="watermark">${watermarkCells}</div>
       </div>
       <div class="plans-locked-card">
