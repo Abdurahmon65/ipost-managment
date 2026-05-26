@@ -752,54 +752,48 @@
     margin-top: 10px;
   }
   .logistics-cs-bg {
-    position: absolute; inset: 0;
-    overflow: hidden; user-select: none; pointer-events: none;
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 18px;
+    position: absolute; inset: 0; overflow: hidden;
+    user-select: none; pointer-events: none;
   }
   .logistics-cs-bg::before, .logistics-cs-bg::after {
     content: ''; position: absolute;
-    border-radius: 50%;
-    filter: blur(70px);
-    opacity: 0.35;
+    border-radius: 50%; filter: blur(80px);
   }
   .logistics-cs-bg::before {
-    width: 400px; height: 400px;
-    background: radial-gradient(circle, var(--warning) 0%, transparent 70%);
-    top: -80px; left: 12%;
+    width: 450px; height: 450px;
+    background: radial-gradient(circle, var(--warning) 0%, transparent 60%);
+    top: -120px; left: -60px;
+    opacity: 0.28;
   }
   .logistics-cs-bg::after {
     width: 500px; height: 500px;
-    background: radial-gradient(circle, var(--brand-2) 0%, transparent 70%);
-    bottom: -120px; right: 8%;
-    opacity: 0.2;
+    background: radial-gradient(circle, var(--brand-2) 0%, transparent 60%);
+    bottom: -140px; right: -80px;
+    opacity: 0.20;
   }
-  .logistics-cs-bg-text {
-    font-size: 110px; font-weight: 900;
-    letter-spacing: -3px;
-    background: linear-gradient(135deg, var(--brand) 0%, var(--brand-2) 100%);
-    -webkit-background-clip: text; background-clip: text;
-    color: transparent;
-    opacity: 0.10;
-    line-height: 0.9;
-    white-space: nowrap;
+  /* Diagonal repeating watermark */
+  .logistics-cs-bg-text,
+  .logistics-cs-bg-sub,
+  .logistics-cs-bg-text.small,
+  .logistics-cs-bg-sub.small { display: none; }
+  .logistics-cs-bg .watermark {
+    position: absolute; inset: -10%;
+    transform: rotate(-22deg);
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 5px 28px;
   }
-  .logistics-cs-bg-text .go {
-    font-style: italic;
-    background: linear-gradient(135deg, var(--brand-2), var(--accent));
-    -webkit-background-clip: text; background-clip: text;
-    color: transparent;
-  }
-  .logistics-cs-bg-sub {
-    font-size: 26px; font-weight: 600;
-    letter-spacing: 6px;
-    color: var(--text-dim);
-    opacity: 0.09;
+  .logistics-cs-bg .watermark span {
+    font-size: 18px; font-weight: 800;
+    letter-spacing: 3px;
     text-transform: uppercase;
-    margin-top: -16px;
+    color: var(--warning);
+    opacity: 0.07;
+    white-space: nowrap;
+    font-family: 'Inter', sans-serif;
   }
-  .logistics-cs-bg-text.small { font-size: 64px; opacity: 0.06; letter-spacing: -1px; }
-  .logistics-cs-bg-sub.small  { font-size: 14px; opacity: 0.05; letter-spacing: 5px; margin-top: -10px; }
+  .logistics-cs-bg .watermark span .dot { color: var(--brand-2); margin: 0 10px; opacity: 0.6; }
+  .logistics-cs-bg .watermark span .accent { color: var(--brand-2); font-style: italic; font-weight: 900; }
 
   .logistics-cs-card {
     position: relative; z-index: 2;
@@ -857,57 +851,60 @@
     display: flex; align-items: center; justify-content: center;
   }
   .plans-locked-bg {
-    position: absolute; inset: 0;
-    overflow: hidden; user-select: none; pointer-events: none;
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 20px;
+    position: absolute; inset: 0; overflow: hidden;
+    user-select: none; pointer-events: none;
   }
+  /* Soft radial color blobs */
   .plans-locked-bg::before, .plans-locked-bg::after {
-    content: '';
-    position: absolute;
-    border-radius: 50%;
-    filter: blur(80px);
-    opacity: 0.4;
+    content: ''; position: absolute;
+    border-radius: 50%; filter: blur(100px);
   }
   .plans-locked-bg::before {
-    width: 500px; height: 500px;
-    background: radial-gradient(circle, var(--brand) 0%, transparent 70%);
-    top: -100px; left: 10%;
+    width: 600px; height: 600px;
+    background: radial-gradient(circle, var(--brand) 0%, transparent 60%);
+    top: -180px; left: -100px;
+    opacity: 0.32;
   }
   .plans-locked-bg::after {
-    width: 600px; height: 600px;
-    background: radial-gradient(circle, var(--brand-2) 0%, transparent 70%);
-    bottom: -150px; right: 10%;
-    opacity: 0.25;
+    width: 700px; height: 700px;
+    background: radial-gradient(circle, var(--brand-2) 0%, transparent 60%);
+    bottom: -220px; right: -120px;
+    opacity: 0.22;
   }
-  .plans-locked-bg-text {
-    font-size: 140px; font-weight: 900;
-    letter-spacing: -4px;
-    background: linear-gradient(135deg, var(--brand) 0%, var(--brand-2) 100%);
-    -webkit-background-clip: text; background-clip: text;
-    color: transparent;
-    opacity: 0.12;
-    line-height: 0.9;
-    white-space: nowrap;
+  /* Diagonal repeating watermark "iPost GO · fast and easy" */
+  .plans-locked-bg-text,
+  .plans-locked-bg-sub,
+  .plans-locked-bg-text.small,
+  .plans-locked-bg-sub.small,
+  .plans-locked-bg-text.tiny,
+  .plans-locked-bg-sub.tiny { display: none; }
+  .plans-locked-bg .watermark {
+    position: absolute; inset: -10%;
+    transform: rotate(-22deg);
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+    gap: 6px 32px;
+    opacity: 0.6;
   }
-  .plans-locked-bg-text .go {
-    font-style: italic;
-    background: linear-gradient(135deg, var(--brand-2) 0%, var(--accent) 100%);
-    -webkit-background-clip: text; background-clip: text;
-    color: transparent;
-  }
-  .plans-locked-bg-sub {
-    font-size: 32px; font-weight: 600;
-    letter-spacing: 8px;
-    color: var(--text-dim);
-    opacity: 0.10;
+  .plans-locked-bg .watermark span {
+    font-size: 22px; font-weight: 800;
+    letter-spacing: 4px;
     text-transform: uppercase;
-    margin-top: -20px;
+    color: var(--brand-2);
+    opacity: 0.08;
+    white-space: nowrap;
+    font-family: 'Inter', sans-serif;
   }
-  .plans-locked-bg-text.small { font-size: 80px; opacity: 0.07; letter-spacing: -2px; }
-  .plans-locked-bg-sub.small  { font-size: 18px; opacity: 0.06; letter-spacing: 6px; margin-top: -12px; }
-  .plans-locked-bg-text.tiny  { font-size: 50px; opacity: 0.05; letter-spacing: -1px; }
-  .plans-locked-bg-sub.tiny   { font-size: 12px; opacity: 0.04; letter-spacing: 4px; margin-top: -8px; }
+  .plans-locked-bg .watermark span .dot {
+    color: var(--accent);
+    margin: 0 12px;
+    opacity: 0.6;
+  }
+  .plans-locked-bg .watermark span .accent {
+    color: var(--brand-2);
+    font-style: italic;
+    font-weight: 900;
+  }
 
   .plans-locked-card {
     position: relative; z-index: 2;
@@ -3683,12 +3680,13 @@ function renderAnalyticsPVZ(p) {
 /* ============ Logistics placeholder (separate future project) ============ */
 function renderComingSoonLogistics(parent, title) {
   const box = el('div', { class: 'logistics-cs' });
+  let watermarkCells = '';
+  for (let i = 0; i < 40; i++) {
+    watermarkCells += `<span>iPost <span class="accent">GO</span><span class="dot">·</span>fast and easy</span>`;
+  }
   box.innerHTML = `
     <div class="logistics-cs-bg" aria-hidden="true">
-      <div class="logistics-cs-bg-text">iPost <span class="go">GO</span></div>
-      <div class="logistics-cs-bg-sub">fast and easy</div>
-      <div class="logistics-cs-bg-text small">iPost <span class="go">GO</span></div>
-      <div class="logistics-cs-bg-sub small">fast and easy</div>
+      <div class="watermark">${watermarkCells}</div>
     </div>
     <div class="logistics-cs-card">
       <div class="logistics-cs-icon">
@@ -6631,15 +6629,15 @@ function renderPlans() {
   // === Закрытый экран ===
   // Логика планов осталась в backend (/api/plans), но UI временно недоступен всем.
   const locked = el('div', { class: 'page active plans-locked' });
+  // Build diagonal watermark grid (40 cells repeating "iPost GO · fast and easy")
+  let watermarkCells = '';
+  for (let i = 0; i < 60; i++) {
+    watermarkCells += `<span>iPost <span class="accent">GO</span><span class="dot">·</span>fast and easy</span>`;
+  }
   locked.innerHTML = `
     <div class="plans-locked-wrap">
       <div class="plans-locked-bg" aria-hidden="true">
-        <div class="plans-locked-bg-text">iPost <span class="go">GO</span></div>
-        <div class="plans-locked-bg-sub">fast and easy</div>
-        <div class="plans-locked-bg-text small">iPost <span class="go">GO</span></div>
-        <div class="plans-locked-bg-sub small">fast and easy</div>
-        <div class="plans-locked-bg-text tiny">iPost <span class="go">GO</span></div>
-        <div class="plans-locked-bg-sub tiny">fast and easy</div>
+        <div class="watermark">${watermarkCells}</div>
       </div>
       <div class="plans-locked-card">
         <div class="plans-locked-icon">
