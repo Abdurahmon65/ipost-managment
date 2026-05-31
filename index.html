@@ -120,7 +120,7 @@
     background: linear-gradient(135deg, var(--brand) 0%, var(--brand-deep) 100%);
     border-radius: 11px; display: flex; align-items: center; justify-content: center;
     overflow: hidden; flex-shrink: 0;
-    box-shadow: 0 6px 18px rgba(0,51,204,0.45);
+    box-shadow: 0 6px 18px rgba(var(--accent-rgb, 0,51,204), 0.45);
   }
   .ipost-logo .logo-mark::before {
     content: ''; position: absolute; inset: -50%;
@@ -230,7 +230,7 @@
   .nav-item.active {
     background: linear-gradient(135deg, var(--brand) 0%, var(--brand-deep) 100%);
     color: #fff; font-weight: 600;
-    box-shadow: 0 4px 14px rgba(0,51,204,0.35);
+    box-shadow: 0 4px 14px rgba(var(--accent-rgb, 0,51,204), 0.35);
   }
   .nav-item.active::before {
     content: ''; position: absolute; left: -12px; top: 50%; transform: translateY(-50%);
@@ -347,9 +347,9 @@
   .btn-primary {
     background: linear-gradient(135deg, var(--brand) 0%, var(--brand-deep) 100%);
     border-color: transparent; color: #fff;
-    box-shadow: 0 4px 14px rgba(0,51,204,0.35);
+    box-shadow: 0 4px 14px rgba(var(--accent-rgb, 0,51,204), 0.35);
   }
-  .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0,51,204,0.45); }
+  .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(var(--accent-rgb, 0,51,204), 0.45); }
 
   /* ==================== KPI GRID ==================== */
   .kpi-grid {
@@ -2406,13 +2406,43 @@ function setTheme(name) {
 }
 
 const ACCENTS = ['blue','purple','green','cyan','orange','pink'];
+
+// Full color set per accent — including deep variant for gradients + glow rgb for shadows
+const ACCENT_PALETTE = {
+  blue:   { accent: '#0080FF', soft: 'rgba(0,128,255,0.14)',   brand: '#0033CC', brand2: '#3CCBFF', deep: '#001A66', glow: '0,51,204' },
+  purple: { accent: '#8B5CFF', soft: 'rgba(139,92,255,0.16)',  brand: '#8B5CFF', brand2: '#B888FF', deep: '#3D1A8B', glow: '139,92,255' },
+  green:  { accent: '#00C896', soft: 'rgba(0,200,150,0.16)',   brand: '#00A872', brand2: '#2CE0A8', deep: '#005A40', glow: '0,200,150' },
+  cyan:   { accent: '#3CCBFF', soft: 'rgba(60,203,255,0.14)',  brand: '#0033CC', brand2: '#3CCBFF', deep: '#001A66', glow: '60,203,255' },
+  orange: { accent: '#FF8800', soft: 'rgba(255,136,0,0.16)',   brand: '#E68A00', brand2: '#FFB840', deep: '#7A3D00', glow: '255,136,0' },
+  pink:   { accent: '#FF3BB0', soft: 'rgba(255,59,176,0.16)',  brand: '#D63FA9', brand2: '#FF6BD6', deep: '#7A1F60', glow: '255,59,176' },
+};
+
+function applyAccentVars(name) {
+  const c = ACCENT_PALETTE[name];
+  if (!c) return;
+  const r = document.documentElement.style;
+  // Inline style beats any CSS rule — guaranteed to win regardless of theme cascade
+  r.setProperty('--accent',      c.accent);
+  r.setProperty('--accent-soft', c.soft);
+  r.setProperty('--brand',       c.brand);
+  r.setProperty('--brand-2',     c.brand2);
+  r.setProperty('--brand-deep',  c.deep);
+  r.setProperty('--brand-glow',  'rgba(' + c.glow + ',0.45)');
+  r.setProperty('--accent-rgb',  c.glow);
+}
+
 function setAccent(name) {
   if (!ACCENTS.includes(name)) return;
+  applyAccentVars(name);
   document.documentElement.setAttribute('data-accent', name);
   STATE.accent = name;
   localStorage.setItem('ipost-go-accent', name);
   if (STATE.page === 'settings') renderSettings(); // refresh selected state
-  toast('Акцентный цвет применён', 'success');
+  toast('Акцентный цвет: ' + (
+    name === 'blue' ? '🔵 Синий' : name === 'purple' ? '🟣 Фиолетовый' :
+    name === 'green' ? '🟢 Зелёный' : name === 'cyan' ? '💧 Бирюза' :
+    name === 'orange' ? '🟠 Оранжевый' : '💗 Розовый'
+  ), 'success');
 }
 
 const FONT_SIZES = ['11','12','13','14','16'];
@@ -9046,14 +9076,14 @@ if (savedTheme) {
 
 // Init accent color
 const savedAccent = localStorage.getItem('ipost-go-accent');
-if (savedAccent) {
-  document.documentElement.setAttribute('data-accent', savedAccent);
+if (savedAccent && ACCENT_PALETTE[savedAccent]) {
   STATE.accent = savedAccent;
 } else {
   // Default accent matches theme
   STATE.accent = (savedTheme === 'light') ? 'blue' : 'cyan';
-  document.documentElement.setAttribute('data-accent', STATE.accent);
 }
+document.documentElement.setAttribute('data-accent', STATE.accent);
+applyAccentVars(STATE.accent); // inline-style CSS vars before first paint
 
 // Init font size
 const savedFontSize = localStorage.getItem('ipost-go-font-size') || '13';
