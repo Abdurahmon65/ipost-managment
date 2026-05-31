@@ -514,6 +514,26 @@
     background: var(--panel); color: var(--text);
   }
 
+  /* Cluster markers (multi-order client points) */
+  .cluster-icon {
+    background: transparent !important;
+    border: none !important;
+  }
+  .cluster-bubble {
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 50%;
+    color: #fff; font-weight: 700; font-family: 'JetBrains Mono', monospace;
+    border: 3px solid #fff;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.35), 0 0 0 1px rgba(0,0,0,0.08);
+    cursor: pointer;
+    transition: transform 0.15s ease;
+    line-height: 1;
+  }
+  .cluster-bubble:hover { transform: scale(1.08); }
+  :root:not([data-theme="light"]) .cluster-bubble {
+    border-color: rgba(255,255,255,0.85);
+  }
+
   /* LIST ITEM */
   .list-item {
     display: flex; align-items: center; gap: 12px;
@@ -7060,20 +7080,84 @@ function renderCourierPoints() {
     L.tileLayer(STATE.theme === 'dark'
       ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
       : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 18 }).addTo(mapInst);
+
+    // Группировка заказов по клиенту + округлённой геопозиции
+    // (один клиент в одной точке = одна метка с числом его заказов)
+    const groups = new Map();
     for (const o of orders) {
       if (typeof o.lat !== 'number' || typeof o.lng !== 'number') continue;
-      const color = o.status === 'completed' ? '#2CE0A8' : o.status === 'issue' ? '#FF5577' : o.status === 'progress' ? '#FFB840' : '#B888FF';
-      L.circleMarker([o.lat, o.lng], { radius: 5, color, weight: 2, fillColor: color, fillOpacity: 0.7 })
-        .addTo(mapInst)
-        .bindPopup(`<div style="font-family:Inter; min-width:160px;">
-          <div style="font-weight:700; font-size:12px;">${o.client || '—'}</div>
-          <div style="font-size:10.5px; color:#666; margin-top:3px;">
-            Трек: <b>${o.trackNo || '—'}</b><br>
-            ${o.addr || ''}<br>
-            Вес: <b>${o.weightKg || 0} кг</b><br>
-            Курьер: <b>${o.driverName || '—'}</b>
+      const clientKey = (o.client || '—').toString().trim().toLowerCase();
+      // ~11м точность (4 знака после запятой) — заказы рядом считаются «той же точкой»
+      const locKey    = o.lat.toFixed(4) + ',' + o.lng.toFixed(4);
+      const key       = clientKey + '|' + locKey;
+      if (!groups.has(key)) {
+        groups.set(key, {
+          client:   o.client || '—',
+          lat:      o.lat,
+          lng:      o.lng,
+          orders:   [],
+        });
+      }
+      groups.get(key).orders.push(o);
+    }
+
+    for (const g of groups.values()) {
+      const count = g.orders.length;
+      const completed = g.orders.filter(o => o.status === 'completed' || o.status === 'done' || o.status === 'delivered').length;
+      const issues    = g.orders.filter(o => o.status === 'issue').length;
+      const inProg    = g.orders.filter(o => o.status === 'progress').length;
+      const totalKg   = g.orders.reduce((s, o) => s + (Number(o.weightKg) || 0), 0);
+      const totalSum  = g.orders.reduce((s, o) => s + (Number(o.sumUZS) || 0), 0);
+
+      // Цвет — по доминирующему статусу
+      const color = issues > 0 ? '#FF5577'
+                  : (completed === count) ? '#2CE0A8'
+                  : inProg > 0 ? '#FFB840'
+                  : '#3CCBFF';
+
+      // Popup: один заказ = детально; много = клиент + список первых 10 треков
+      const popupHtml = count === 1 ? `
+        <div style="font-family:Inter; min-width:170px;">
+          <div style="font-weight:700; font-size:12.5px;">${g.client}</div>
+          <div style="font-size:10.5px; color:#666; margin-top:4px;">
+            Трек: <b>${g.orders[0].trackNo || '—'}</b><br>
+            ${g.orders[0].addr || ''}<br>
+            Вес: <b>${g.orders[0].weightKg || 0} кг</b><br>
+            Курьер: <b>${g.orders[0].driverName || '—'}</b>
           </div>
-        </div>`);
+        </div>` : `
+        <div style="font-family:Inter; min-width:210px;">
+          <div style="font-weight:700; font-size:13px;">${g.client}</div>
+          <div style="font-size:11px; color:#666; margin-top:4px;">
+            <b>${count}</b> заказов в этой точке<br>
+            ✓ Доставлено: <b>${completed}</b> · 🚚 В пути: <b>${inProg}</b>${issues ? ' · ⚠ Проблем: <b>'+issues+'</b>' : ''}<br>
+            Общий вес: <b>${fmt(totalKg)} кг</b> · Сумма: <b>${fmt(totalSum)} UZS</b>
+          </div>
+          <div style="margin-top:8px; padding-top:8px; border-top:1px solid #eee; font-size:10px; color:#888; max-height:130px; overflow-y:auto;">
+            ${g.orders.slice(0, 10).map(o => `<div style="padding:2px 0;"><b>${o.trackNo || '—'}</b> · ${o.weightKg || 0}кг · ${o.status || ''}</div>`).join('')}
+            ${count > 10 ? '<div style="color:#aaa; padding-top:4px;">…ещё ' + (count - 10) + '</div>' : ''}
+          </div>
+        </div>`;
+
+      if (count === 1) {
+        // Одиночный заказ — небольшая точка
+        L.circleMarker([g.lat, g.lng], { radius: 6, color, weight: 2, fillColor: color, fillOpacity: 0.75 })
+          .addTo(mapInst).bindPopup(popupHtml);
+      } else {
+        // Кластер — нумерованный кружок, размер зависит от количества
+        const size = count >= 100 ? 50 : count >= 30 ? 44 : count >= 10 ? 40 : 34;
+        const fontSize = size >= 44 ? 14 : 12;
+        const icon = L.divIcon({
+          className: 'cluster-icon',
+          html: `<div class="cluster-bubble" style="
+            width:${size}px; height:${size}px;
+            background:${color}; font-size:${fontSize}px;
+          ">${count}</div>`,
+          iconSize:   [size, size],
+          iconAnchor: [size/2, size/2],
+        });
+        L.marker([g.lat, g.lng], { icon }).addTo(mapInst).bindPopup(popupHtml);
+      }
     }
   }, 30);
 }
