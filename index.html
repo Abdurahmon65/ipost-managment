@@ -83,6 +83,14 @@
     --grid-color: rgba(0,51,204,0.04);
   }
 
+  /* ========= ACCENT OVERRIDES (applied via data-accent on <html>) ========= */
+  :root[data-accent="blue"]   { --accent: #0080FF; --accent-soft: rgba(0,128,255,0.14);   --brand: #0033CC; --brand-2: #3CCBFF; }
+  :root[data-accent="purple"] { --accent: #8B5CFF; --accent-soft: rgba(139,92,255,0.14);  --brand: #8B5CFF; --brand-2: #B888FF; }
+  :root[data-accent="green"]  { --accent: #00C896; --accent-soft: rgba(0,200,150,0.14);   --brand: #00A872; --brand-2: #2CE0A8; }
+  :root[data-accent="cyan"]   { --accent: #3CCBFF; --accent-soft: rgba(60,203,255,0.14);  --brand: #0033CC; --brand-2: #3CCBFF; }
+  :root[data-accent="orange"] { --accent: #FF8800; --accent-soft: rgba(255,136,0,0.14);   --brand: #E68A00; --brand-2: #FFB840; }
+  :root[data-accent="pink"]   { --accent: #FF3BB0; --accent-soft: rgba(255,59,176,0.14);  --brand: #D63FA9; --brand-2: #FF6BD6; }
+
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body {
     height: 100%; overflow: hidden;
@@ -90,8 +98,14 @@
     background: var(--bg); color: var(--text);
     font-size: 13px;
     -webkit-font-smoothing: antialiased;
-    transition: background 0.3s, color 0.3s;
+    transition: background 0.3s, color 0.3s, font-size 0.2s;
   }
+  /* Font size scaling (controlled by data-font-size on <html>) */
+  :root[data-font-size="11"] body { font-size: 11px; }
+  :root[data-font-size="12"] body { font-size: 12px; }
+  :root[data-font-size="13"] body { font-size: 13px; }
+  :root[data-font-size="14"] body { font-size: 14px; }
+  :root[data-font-size="16"] body { font-size: 16px; }
   button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
   input, select, textarea { font-family: inherit; }
   ::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -512,6 +526,51 @@
   :root:not([data-theme="light"]) .leaflet-popup-content-wrapper,
   :root:not([data-theme="light"]) .leaflet-popup-tip {
     background: var(--panel); color: var(--text);
+  }
+
+  /* ====================== APPEARANCE SELECTOR ====================== */
+  .ap-group { margin-bottom: 22px; }
+  .ap-group-label {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 1.2px; color: var(--text-muted);
+    margin-bottom: 10px;
+  }
+  .ap-cards {
+    display: grid; gap: 12px;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  }
+  .ap-card {
+    position: relative; cursor: pointer;
+    background: var(--panel-2); border: 2px solid var(--border);
+    border-radius: 12px; padding: 12px;
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    transition: all 0.15s ease;
+    user-select: none;
+  }
+  .ap-card:hover { border-color: var(--border-light); transform: translateY(-1px); }
+  .ap-card.active {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  .ap-card .ap-preview {
+    width: 100%; height: 56px; border-radius: 8px;
+    background: var(--panel-3);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .ap-card .ap-label {
+    font-size: 12px; font-weight: 600; color: var(--text);
+    text-align: center; line-height: 1.2;
+  }
+  .ap-card .ap-sub {
+    font-size: 10px; color: var(--text-muted); margin-top: -2px;
+  }
+  .ap-card .ap-flag {
+    width: 36px; height: 26px; border-radius: 5px; overflow: hidden;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.18);
+  }
+  .ap-fontsize {
+    font-family: 'JetBrains Mono', monospace; font-weight: 700;
+    color: var(--accent); letter-spacing: -0.5px;
   }
 
   /* Cluster markers (multi-order client points) */
@@ -2330,10 +2389,41 @@ function togglePwd(inputId, btnId) {
 function toggleTheme() {
   const cur = document.documentElement.getAttribute('data-theme');
   const next = cur === 'dark' ? 'light' : 'dark';
-  document.documentElement.setAttribute('data-theme', next);
-  STATE.theme = next;
-  localStorage.setItem('ipost-go-theme', next);
-  if (STATE.page === 'home' || STATE.page === 'map') renderPage(STATE.page);
+  setTheme(next);
+}
+
+/* ====== APPEARANCE: theme / accent / font-size — live-apply + persist ====== */
+function setTheme(name) {
+  if (name !== 'dark' && name !== 'light') return;
+  document.documentElement.setAttribute('data-theme', name);
+  STATE.theme = name;
+  localStorage.setItem('ipost-go-theme', name);
+  // Re-render only pages that depend on theme (charts, maps)
+  if (['home','map','analytics','courier-points','shuttles','rc','settings'].includes(STATE.page)) {
+    renderPage(STATE.page);
+  }
+  toast('Тема: ' + (name === 'dark' ? '🌙 Тёмная' : '☀ Светлая'), 'success');
+}
+
+const ACCENTS = ['blue','purple','green','cyan','orange','pink'];
+function setAccent(name) {
+  if (!ACCENTS.includes(name)) return;
+  document.documentElement.setAttribute('data-accent', name);
+  STATE.accent = name;
+  localStorage.setItem('ipost-go-accent', name);
+  if (STATE.page === 'settings') renderSettings(); // refresh selected state
+  toast('Акцентный цвет применён', 'success');
+}
+
+const FONT_SIZES = ['11','12','13','14','16'];
+function setFontSize(px) {
+  px = String(px);
+  if (!FONT_SIZES.includes(px)) return;
+  document.documentElement.setAttribute('data-font-size', px);
+  STATE.fontSize = px;
+  localStorage.setItem('ipost-go-font-size', px);
+  if (STATE.page === 'settings') renderSettings();
+  toast('Размер шрифта: ' + px + 'px', 'success');
 }
 
 async function doLogin() {
@@ -8543,6 +8633,93 @@ function renderSettings() {
   const p = el('div', { class: 'page active' });
   c.appendChild(p);
 
+  /* ========== Appearance card (theme / accent / lang / font) ========== */
+  const curTheme  = document.documentElement.getAttribute('data-theme')      || 'dark';
+  const curAccent = document.documentElement.getAttribute('data-accent')     || (curTheme === 'light' ? 'blue' : 'cyan');
+  const curFont   = document.documentElement.getAttribute('data-font-size')  || '13';
+  const curLang   = STATE.lang || 'ru';
+
+  const ACCENT_LIST = [
+    { key: 'blue',   label: 'Синий',       grad: 'linear-gradient(135deg, #0033CC, #3CCBFF)' },
+    { key: 'purple', label: 'Фиолетовый',  grad: 'linear-gradient(135deg, #8B5CFF, #B888FF)' },
+    { key: 'green',  label: 'Зелёный',     grad: 'linear-gradient(135deg, #00A872, #2CE0A8)' },
+    { key: 'cyan',   label: 'Бирюза',      grad: 'linear-gradient(135deg, #0EB8E0, #3CCBFF)' },
+    { key: 'orange', label: 'Оранжевый',   grad: 'linear-gradient(135deg, #E68A00, #FFB840)' },
+    { key: 'pink',   label: 'Розовый',     grad: 'linear-gradient(135deg, #D63FA9, #FF6BD6)' },
+  ];
+  const LANG_LIST = [
+    { key: 'ru', label: 'Русский',  flag: 'linear-gradient(180deg, #FFF 33%, #0033A0 33% 66%, #E4181C 66%)' },
+    { key: 'en', label: 'English',  flag: 'linear-gradient(135deg, #012169 25%, #FFF 25% 50%, #C8102E 50% 75%, #FFF 75%)' },
+    { key: 'uz', label: 'Oʻzbek',   flag: 'linear-gradient(180deg, #1EB53A 33%, #FFF 33% 66%, #0099B5 66%)' },
+  ];
+  const FONT_LIST = [
+    { key: '11', label: 'Очень мелкий', sub: '11px' },
+    { key: '12', label: 'Мелкий',       sub: '12px' },
+    { key: '13', label: 'Обычный',      sub: '13px' },
+    { key: '14', label: 'Крупный',      sub: '14px' },
+    { key: '16', label: 'Очень крупный', sub: '16px' },
+  ];
+
+  const appearance = el('div', { class: 'card', style: 'margin-bottom: 14px;' });
+  appearance.appendChild(el('div', { class: 'card-head', html: `
+    <div><div class="h">Внешний вид</div><div class="sub">Тема и язык интерфейса</div></div>
+  `}));
+  appearance.innerHTML += `
+    <div class="ap-group">
+      <div class="ap-group-label">Тема</div>
+      <div class="ap-cards">
+        <div class="ap-card ${curTheme === 'dark'  ? 'active' : ''}" onclick="setTheme('dark')">
+          <div class="ap-preview" style="background:linear-gradient(135deg,#0F1729,#06080F);"></div>
+          <div class="ap-label">🌙 Тёмная</div>
+        </div>
+        <div class="ap-card ${curTheme === 'light' ? 'active' : ''}" onclick="setTheme('light')">
+          <div class="ap-preview" style="background:linear-gradient(135deg,#FFFFFF,#EAF0FA);"></div>
+          <div class="ap-label">☀ Светлая</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ap-group">
+      <div class="ap-group-label">Акцентный цвет</div>
+      <div class="ap-cards">
+        ${ACCENT_LIST.map(a => `
+          <div class="ap-card ${curAccent === a.key ? 'active' : ''}" onclick="setAccent('${a.key}')">
+            <div class="ap-preview" style="background:${a.grad};"></div>
+            <div class="ap-label">${a.label}</div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+
+    <div class="ap-group">
+      <div class="ap-group-label">Язык интерфейса</div>
+      <div class="ap-cards" style="grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));">
+        ${LANG_LIST.map(l => `
+          <div class="ap-card ${curLang === l.key ? 'active' : ''}" onclick="setLang('${l.key}')">
+            <div class="ap-preview" style="padding:0; background:transparent;">
+              <div class="ap-flag" style="background:${l.flag};"></div>
+            </div>
+            <div class="ap-label">${l.label}</div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+
+    <div class="ap-group" style="margin-bottom: 4px;">
+      <div class="ap-group-label">Размер шрифта</div>
+      <div class="ap-cards">
+        ${FONT_LIST.map(f => `
+          <div class="ap-card ${curFont === f.key ? 'active' : ''}" onclick="setFontSize('${f.key}')">
+            <div class="ap-preview"><span class="ap-fontsize" style="font-size:${Math.min(28, Number(f.key) * 1.8)}px;">Aa</span></div>
+            <div class="ap-label">${f.label}</div>
+            <div class="ap-sub">${f.sub}</div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+  p.appendChild(appearance);
+
   const row = el('div', { class: 'row r-1-1' });
 
   const profile = el('div', { class: 'card' });
@@ -8866,6 +9043,22 @@ if (savedTheme) {
   document.documentElement.setAttribute('data-theme', savedTheme);
   STATE.theme = savedTheme;
 }
+
+// Init accent color
+const savedAccent = localStorage.getItem('ipost-go-accent');
+if (savedAccent) {
+  document.documentElement.setAttribute('data-accent', savedAccent);
+  STATE.accent = savedAccent;
+} else {
+  // Default accent matches theme
+  STATE.accent = (savedTheme === 'light') ? 'blue' : 'cyan';
+  document.documentElement.setAttribute('data-accent', STATE.accent);
+}
+
+// Init font size
+const savedFontSize = localStorage.getItem('ipost-go-font-size') || '13';
+document.documentElement.setAttribute('data-font-size', savedFontSize);
+STATE.fontSize = savedFontSize;
 
 // Init language — apply on first paint
 document.documentElement.setAttribute('lang', STATE.lang);
