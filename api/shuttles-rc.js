@@ -1,397 +1,216 @@
-// /api/shuttles-rc — Учёт шатлов и РЦ (Distribution Centers).
+// /api/shuttles-rc — Зеркало данных ipost-tarif-dashboard.vercel.app
 //
-// Single endpoint, four resources via ?type= :
-//   ?type=shuttle  — GET/POST/PUT/DELETE — список шатлов
-//   ?type=rc       — GET/POST/PUT/DELETE — список распределительных центров
-//   ?type=tariff   — GET/POST            — матрица тарифов вилоят × услуга × партнёр
-//   ?type=record   — GET/POST/DELETE     — записи (дата, вилоят, услуга, кг, выручка)
+// Поскольку ipost-tarif-dashboard это чисто-клиентский SPA без бэкенда
+// (всё в localStorage браузера: ipost-tarif-entries / ipost-tarif-tariffs),
+// мы делаем мост через Redis:
 //
-// Полностью изолирован от данных курьерской и dispatch.
-// Хранится в Redis под собственными ключами:
-//   data:src:shuttles, data:src:rc, data:src:tariffs, data:src:tariff_records
+//   1) Пользователь на ipost-tarif-dashboard.vercel.app запускает в консоли
+//      однострочник (или жмёт bookmarklet) — он отправляет POST на нашу
+//      ручку ?type=sync с CORS-разрешением.
+//
+//   2) Дальше директор-сюита читает синхронизированные данные через
+//      ?type=sync (GET) и показывает их 1:1 с тарифной панелью.
+//
+// Эндпоинты:
+//   ?type=sync   GET   — публично, возвращает {entries, tariffs, syncedAt}
+//                POST  — публично+CORS, принимает {entries, tariffs}
+//                OPTIONS — CORS preflight
+//   ?type=clear  DELETE — auth (директор), полная очистка
+//
+// Хранение в Redis:
+//   data:tarif:entries  — массив записей формата ipost-tarif-dashboard
+//   data:tarif:tariffs  — таблица тарифов формата ipost-tarif-dashboard
+//   data:tarif:meta     — { syncedAt, syncedFrom, entryCount }
 
 import { redis } from './_lib/redis.js';
-import { requireAuth, generateRecordId, isDirector } from './_lib/auth.js';
+import { requireAuth, isDirector } from './_lib/auth.js';
 
-const K_SHUTTLES = 'data:src:shuttles';
-const K_RC       = 'data:src:rc';
-const K_TARIFFS  = 'data:src:tariffs';
-const K_RECORDS  = 'data:src:tariff_records';
-const K_AUDIT    = 'data:records'; // shared audit log
+const K_ENTRIES = 'data:tarif:entries';
+const K_TARIFFS = 'data:tarif:tariffs';
+const K_META    = 'data:tarif:meta';
 
-const SERVICES = ['IPOST', 'KG', 'EMU', 'BTS', 'SHUTTLE'];
-const PARTNERS = ['IJARA', 'HAMKOR'];
+const MAX_ENTRIES = 50000; // защита от мусора
 
-const REGIONS = [
-  { key: 'tashkent',        name: 'Ташкент'         },
-  { key: 'tashkent_region', name: 'Ташкентская обл.'},
-  { key: 'samarkand',       name: 'Самарканд'       },
-  { key: 'bukhara',         name: 'Бухара'          },
-  { key: 'fergana',         name: 'Фергана'         },
-  { key: 'andijan',         name: 'Андижан'         },
-  { key: 'namangan',        name: 'Наманган'        },
-  { key: 'qashqadaryo',     name: 'Кашкадарья'      },
-  { key: 'surxondaryo',     name: 'Сурхандарья'     },
-  { key: 'navoiy',          name: 'Навои'           },
-  { key: 'jizzax',          name: 'Джизак'          },
-  { key: 'sirdaryo',        name: 'Сырдарья'        },
-  { key: 'xorazm',          name: 'Хорезм'          },
-  { key: 'karakalpak',      name: 'Каракалпакстан'  },
+// Канонические данные ipost-tarif-dashboard
+const DEFAULT_TARIFFS = [
+  { region: "Andijon",          partner: "IJARA",  ipost: 1000, emu: 800, bts: 800, shuttle: 1000 },
+  { region: "Namangan",         partner: "IJARA",  ipost: 1000, emu: 800, bts: 800, shuttle: 1000 },
+  { region: "Farg'ona",         partner: "HAMKOR", ipost: 1200, emu: 800, bts: 800, shuttle: 1200 },
+  { region: "Qo'qon",           partner: "HAMKOR", ipost: 1200, emu: 800, bts: 800, shuttle: 1200 },
+  { region: "Jizzax",           partner: "HAMKOR", ipost: 1200, emu: 800, bts: 800, shuttle: 1200 },
+  { region: "Sirdaryo",         partner: "—",      ipost: 0,    emu: 800, bts: 800, shuttle: 0    },
+  { region: "Samarqand",        partner: "IJARA",  ipost: 1000, emu: 800, bts: 800, shuttle: 1000 },
+  { region: "Qashqadaryo",      partner: "HAMKOR", ipost: 1200, emu: 800, bts: 800, shuttle: 1200 },
+  { region: "Surxondaryo",      partner: "IJARA",  ipost: 1000, emu: 800, bts: 800, shuttle: 1000 },
+  { region: "Navoiy",           partner: "HAMKOR", ipost: 1200, emu: 800, bts: 800, shuttle: 1200 },
+  { region: "Buxoro",           partner: "IJARA",  ipost: 1000, emu: 800, bts: 800, shuttle: 1000 },
+  { region: "Xorazm",           partner: "HAMKOR", ipost: 1200, emu: 800, bts: 800, shuttle: 1200 },
+  { region: "Qoraqalpog'iston", partner: "HAMKOR", ipost: 1200, emu: 800, bts: 800, shuttle: 1200 },
 ];
 
-async function loadList(key) {
+function setCors(res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Max-Age', '86400');
+}
+
+async function loadJson(key, fallback) {
   const raw = await redis.get(key);
-  if (!raw) return [];
-  return typeof raw === 'string' ? JSON.parse(raw) : raw;
+  if (!raw) return fallback;
+  try { return typeof raw === 'string' ? JSON.parse(raw) : raw; }
+  catch { return fallback; }
 }
-async function saveList(key, list) {
-  await redis.set(key, JSON.stringify(list));
-}
-async function loadObj(key) {
-  const raw = await redis.get(key);
-  if (!raw) return {};
-  return typeof raw === 'string' ? JSON.parse(raw) : raw;
-}
-async function saveObj(key, obj) {
-  await redis.set(key, JSON.stringify(obj));
+async function saveJson(key, data) {
+  await redis.set(key, JSON.stringify(data));
 }
 
-async function audit(rec) {
-  try {
-    const raw = await redis.get(K_AUDIT);
-    const records = !raw ? [] : (typeof raw === 'string' ? JSON.parse(raw) : raw);
-    records.unshift(rec);
-    await redis.set(K_AUDIT, JSON.stringify(records.slice(0, 500)));
-  } catch {}
-}
-
-function genId(prefix) {
-  return prefix + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
-}
-
-/* ============== SHUTTLES ============== */
-function sanitizeShuttle(b) {
+function sanitizeEntry(e) {
+  if (!e || typeof e !== 'object') return null;
+  const kg   = Number(e.kg)   || 0;
+  const rate = Number(e.rate) || 0;
+  const rev  = Number(e.revenue);
   return {
-    code:         String(b.code || '').trim().slice(0, 32),
-    plate:        String(b.plate || '').trim().slice(0, 32),
-    regionKey:    String(b.regionKey || '').trim(),
-    capacityKg:   Math.max(0, Number(b.capacityKg) || 0),
-    driver:       String(b.driver || '').trim().slice(0, 80),
-    driverPhone:  String(b.driverPhone || '').trim().slice(0, 32),
-    status:       ['active','maintenance','off','on_route'].includes(b.status) ? b.status : 'active',
-    notes:        String(b.notes || '').trim().slice(0, 500),
-  };
-}
-async function handleShuttle(req, res, me) {
-  if (req.method === 'GET') {
-    const list = await loadList(K_SHUTTLES);
-    return res.status(200).json({ shuttles: list, count: list.length });
-  }
-  if (req.method === 'POST') {
-    const data = sanitizeShuttle(req.body || {});
-    if (!data.code || !data.regionKey) {
-      return res.status(400).json({ error: 'missing_fields', message: 'code и regionKey обязательны' });
-    }
-    const list = await loadList(K_SHUTTLES);
-    const item = {
-      id: genId('sh'),
-      ...data,
-      createdBy: me.login || me.id,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
-    list.unshift(item);
-    await saveList(K_SHUTTLES, list);
-    await audit({
-      id: generateRecordId(), when: Date.now(),
-      eventKey: 'ev_shuttle_added', targetId: item.id, targetName: item.code,
-      who: me.fullName || me.login, details: 'регион: ' + item.regionKey,
-    });
-    return res.status(200).json({ shuttle: item });
-  }
-  if (req.method === 'PUT') {
-    const { id } = req.body || {};
-    if (!id) return res.status(400).json({ error: 'missing_id' });
-    const list = await loadList(K_SHUTTLES);
-    const idx = list.findIndex(x => x.id === id);
-    if (idx < 0) return res.status(404).json({ error: 'not_found' });
-    const data = sanitizeShuttle(req.body || {});
-    list[idx] = { ...list[idx], ...data, updatedAt: Date.now() };
-    await saveList(K_SHUTTLES, list);
-    return res.status(200).json({ shuttle: list[idx] });
-  }
-  if (req.method === 'DELETE') {
-    const { id } = req.body || {};
-    if (!id) return res.status(400).json({ error: 'missing_id' });
-    const list = await loadList(K_SHUTTLES);
-    const target = list.find(x => x.id === id);
-    if (!target) return res.status(404).json({ error: 'not_found' });
-    await saveList(K_SHUTTLES, list.filter(x => x.id !== id));
-    await audit({
-      id: generateRecordId(), when: Date.now(),
-      eventKey: 'ev_shuttle_deleted', targetId: target.id, targetName: target.code,
-      who: me.fullName || me.login, details: '',
-    });
-    return res.status(200).json({ ok: true });
-  }
-  return res.status(405).json({ error: 'method_not_allowed' });
-}
-
-/* ============== RC ============== */
-function sanitizeRC(b) {
-  return {
-    code:         String(b.code || '').trim().slice(0, 32),
-    name:         String(b.name || '').trim().slice(0, 120),
-    regionKey:    String(b.regionKey || '').trim(),
-    address:      String(b.address || '').trim().slice(0, 240),
-    services:     Array.isArray(b.services) ? b.services.filter(s => SERVICES.includes(s)) : [],
-    partnerType:  PARTNERS.includes(b.partnerType) ? b.partnerType : 'IJARA',
-    manager:      String(b.manager || '').trim().slice(0, 80),
-    managerPhone: String(b.managerPhone || '').trim().slice(0, 32),
-    status:       ['active','closed'].includes(b.status) ? b.status : 'active',
-    notes:        String(b.notes || '').trim().slice(0, 500),
-  };
-}
-async function handleRC(req, res, me) {
-  if (req.method === 'GET') {
-    const list = await loadList(K_RC);
-    return res.status(200).json({ rc: list, count: list.length });
-  }
-  if (req.method === 'POST') {
-    const data = sanitizeRC(req.body || {});
-    if (!data.code || !data.regionKey) {
-      return res.status(400).json({ error: 'missing_fields', message: 'code и regionKey обязательны' });
-    }
-    const list = await loadList(K_RC);
-    const item = {
-      id: genId('rc'),
-      ...data,
-      createdBy: me.login || me.id,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
-    list.unshift(item);
-    await saveList(K_RC, list);
-    await audit({
-      id: generateRecordId(), when: Date.now(),
-      eventKey: 'ev_rc_added', targetId: item.id, targetName: item.code + ' / ' + (item.name || ''),
-      who: me.fullName || me.login, details: 'регион: ' + item.regionKey + ' · услуги: ' + item.services.join(','),
-    });
-    return res.status(200).json({ rc: item });
-  }
-  if (req.method === 'PUT') {
-    const { id } = req.body || {};
-    if (!id) return res.status(400).json({ error: 'missing_id' });
-    const list = await loadList(K_RC);
-    const idx = list.findIndex(x => x.id === id);
-    if (idx < 0) return res.status(404).json({ error: 'not_found' });
-    const data = sanitizeRC(req.body || {});
-    list[idx] = { ...list[idx], ...data, updatedAt: Date.now() };
-    await saveList(K_RC, list);
-    return res.status(200).json({ rc: list[idx] });
-  }
-  if (req.method === 'DELETE') {
-    const { id } = req.body || {};
-    if (!id) return res.status(400).json({ error: 'missing_id' });
-    const list = await loadList(K_RC);
-    const target = list.find(x => x.id === id);
-    if (!target) return res.status(404).json({ error: 'not_found' });
-    await saveList(K_RC, list.filter(x => x.id !== id));
-    await audit({
-      id: generateRecordId(), when: Date.now(),
-      eventKey: 'ev_rc_deleted', targetId: target.id, targetName: target.code,
-      who: me.fullName || me.login, details: '',
-    });
-    return res.status(200).json({ ok: true });
-  }
-  return res.status(405).json({ error: 'method_not_allowed' });
-}
-
-/* ============== TARIFFS ============== */
-// Stored as nested map: tariffs[partnerType][regionKey][service] = number (UZS per kg)
-async function handleTariff(req, res, me) {
-  if (req.method === 'GET') {
-    const t = await loadObj(K_TARIFFS);
-    return res.status(200).json({ tariffs: t, regions: REGIONS, services: SERVICES, partners: PARTNERS });
-  }
-  if (req.method === 'POST') {
-    // Bulk set: body = { tariffs: {...} } or { partner, region, service, value }
-    const t = await loadObj(K_TARIFFS);
-    if (req.body && req.body.tariffs && typeof req.body.tariffs === 'object') {
-      await saveObj(K_TARIFFS, req.body.tariffs);
-      await audit({
-        id: generateRecordId(), when: Date.now(),
-        eventKey: 'ev_tariffs_updated', targetId: '', targetName: 'Все тарифы',
-        who: me.fullName || me.login, details: 'bulk update',
-      });
-      return res.status(200).json({ tariffs: req.body.tariffs });
-    }
-    const partner = PARTNERS.includes(req.body?.partner) ? req.body.partner : null;
-    const region  = String(req.body?.region || '').trim();
-    const service = SERVICES.includes(req.body?.service) ? req.body.service : null;
-    const value   = Number(req.body?.value);
-    if (!partner || !region || !service || isNaN(value)) {
-      return res.status(400).json({ error: 'invalid_fields' });
-    }
-    if (!t[partner]) t[partner] = {};
-    if (!t[partner][region]) t[partner][region] = {};
-    t[partner][region][service] = value;
-    await saveObj(K_TARIFFS, t);
-    await audit({
-      id: generateRecordId(), when: Date.now(),
-      eventKey: 'ev_tariff_set', targetId: region, targetName: service + '/' + partner,
-      who: me.fullName || me.login, details: 'тариф: ' + value + ' UZS/кг',
-    });
-    return res.status(200).json({ tariffs: t });
-  }
-  return res.status(405).json({ error: 'method_not_allowed' });
-}
-
-/* ============== TARIFF RECORDS (учёт за день) ============== */
-function sanitizeRecord(b, tariffs) {
-  const partner = PARTNERS.includes(b.partner) ? b.partner : 'IJARA';
-  const region  = String(b.region || '').trim();
-  const service = SERVICES.includes(b.service) ? b.service : 'IPOST';
-  const kg      = Math.max(0, Number(b.kg) || 0);
-  const tariff  = Number(b.tariff) > 0
-    ? Number(b.tariff)
-    : (tariffs?.[partner]?.[region]?.[service] || 0);
-  return {
-    date:    String(b.date || '').slice(0, 10), // YYYY-MM-DD
-    region,
-    service,
-    partner,
+    id:        String(e.id || '').slice(0, 64) || ('id_' + Math.random().toString(36).slice(2, 10)),
+    date:      String(e.date || '').slice(0, 10),
+    region:    String(e.region || '').slice(0, 80),
+    partner:   String(e.partner || '').slice(0, 20),
+    service:   String(e.service || '').slice(0, 20).toLowerCase(),
     kg,
-    tariff,
-    revenue: kg * tariff,
-    note:    String(b.note || '').trim().slice(0, 240),
-    rcId:    String(b.rcId || '').trim(),
-    shuttleId: String(b.shuttleId || '').trim(),
+    rate,
+    revenue:   isNaN(rev) ? Math.round(kg * rate) : rev,
+    note:      String(e.note || '').slice(0, 500),
+    author:    String(e.author || '').slice(0, 80),
+    createdAt: Number(e.createdAt) || Date.now(),
   };
 }
-async function handleRecord(req, res, me) {
-  if (req.method === 'GET') {
-    const url  = new URL(req.url, 'http://x');
-    const from = url.searchParams.get('from'); // YYYY-MM-DD
-    const to   = url.searchParams.get('to');
-    const region  = url.searchParams.get('region');
-    const service = url.searchParams.get('service');
-    const partner = url.searchParams.get('partner');
-    let list = await loadList(K_RECORDS);
-    if (from)    list = list.filter(r => r.date >= from);
-    if (to)      list = list.filter(r => r.date <= to);
-    if (region)  list = list.filter(r => r.region === region);
-    if (service) list = list.filter(r => r.service === service);
-    if (partner) list = list.filter(r => r.partner === partner);
-    const totals = list.reduce((acc, r) => {
-      acc.kg += r.kg; acc.revenue += r.revenue; acc.count++;
-      return acc;
-    }, { kg: 0, revenue: 0, count: 0 });
-    return res.status(200).json({ records: list, totals });
-  }
-  if (req.method === 'POST') {
-    const tariffs = await loadObj(K_TARIFFS);
-    // Batch insert
-    if (Array.isArray(req.body?.batch)) {
-      const list = await loadList(K_RECORDS);
-      const added = [];
-      for (const item of req.body.batch) {
-        const data = sanitizeRecord(item, tariffs);
-        if (!data.date || !data.region || data.kg <= 0) continue;
-        const r = {
-          id: genId('tr'),
-          ...data,
-          createdBy: me.login || me.id,
-          createdByName: me.fullName || me.login,
-          createdAt: Date.now(),
-        };
-        list.unshift(r);
-        added.push(r);
-      }
-      await saveList(K_RECORDS, list.slice(0, 5000));
-      await audit({
-        id: generateRecordId(), when: Date.now(),
-        eventKey: 'ev_tariff_records_added', targetId: '', targetName: 'Batch +' + added.length,
-        who: me.fullName || me.login,
-        details: 'Сумма выручки: ' + added.reduce((s,x) => s + x.revenue, 0) + ' UZS',
-      });
-      return res.status(200).json({ added: added.length, records: added });
-    }
-    const data = sanitizeRecord(req.body || {}, tariffs);
-    if (!data.date || !data.region || data.kg <= 0) {
-      return res.status(400).json({ error: 'invalid_fields', message: 'date, region, kg обязательны' });
-    }
-    const list = await loadList(K_RECORDS);
-    const r = {
-      id: genId('tr'),
-      ...data,
-      createdBy: me.login || me.id,
-      createdByName: me.fullName || me.login,
-      createdAt: Date.now(),
-    };
-    list.unshift(r);
-    await saveList(K_RECORDS, list.slice(0, 5000));
-    await audit({
-      id: generateRecordId(), when: Date.now(),
-      eventKey: 'ev_tariff_record_added', targetId: r.region, targetName: r.service + ' · ' + r.kg + 'кг',
-      who: me.fullName || me.login, details: 'Доход: ' + r.revenue + ' UZS',
-    });
-    return res.status(200).json({ record: r });
-  }
-  if (req.method === 'DELETE') {
-    const { id, all } = req.body || {};
-    if (all === true) {
-      if (!isDirector(me)) {
-        return res.status(403).json({ error: 'forbidden', message: 'director_required' });
-      }
-      const old = await loadList(K_RECORDS);
-      await saveList(K_RECORDS, []);
-      await audit({
-        id: generateRecordId(), when: Date.now(),
-        eventKey: 'ev_tariff_records_cleared', targetId: '', targetName: '',
-        who: me.fullName || me.login, details: 'Удалено ' + old.length + ' записей',
-      });
-      return res.status(200).json({ ok: true, deleted: old.length });
-    }
-    if (!id) return res.status(400).json({ error: 'missing_id' });
-    const list = await loadList(K_RECORDS);
-    const target = list.find(r => r.id === id);
-    if (!target) return res.status(404).json({ error: 'not_found' });
-    // Only director can delete tariff records (preserve audit history)
-    if (!isDirector(me)) {
-      // Allow self-delete within 5 minutes (mistake correction)
-      if (target.createdBy !== (me.login || me.id) || (Date.now() - target.createdAt) > 5 * 60 * 1000) {
-        return res.status(403).json({
-          error: 'forbidden',
-          message: 'Удалить чужую или старую запись может только директор',
-        });
-      }
-    }
-    await saveList(K_RECORDS, list.filter(r => r.id !== id));
-    await audit({
-      id: generateRecordId(), when: Date.now(),
-      eventKey: 'ev_tariff_record_deleted', targetId: target.region, targetName: target.service,
-      who: me.fullName || me.login, details: '',
-    });
-    return res.status(200).json({ ok: true });
-  }
-  return res.status(405).json({ error: 'method_not_allowed' });
+
+function sanitizeTariffRow(t) {
+  if (!t || typeof t !== 'object') return null;
+  return {
+    region:  String(t.region || '').slice(0, 80),
+    partner: String(t.partner || '—').slice(0, 20),
+    ipost:   Number(t.ipost)   || 0,
+    emu:     Number(t.emu)     || 0,
+    bts:     Number(t.bts)     || 0,
+    shuttle: Number(t.shuttle) || 0,
+  };
 }
 
-export default async function handler(req, res) {
-  try {
-    const ctx = await requireAuth(req, res);
-    if (!ctx) return;
-    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-    const url = new URL(req.url, 'http://x');
-    const type = url.searchParams.get('type') || 'shuttle';
-    switch (type) {
-      case 'shuttle': return handleShuttle(req, res, ctx.user);
-      case 'rc':      return handleRC(req, res, ctx.user);
-      case 'tariff':  return handleTariff(req, res, ctx.user);
-      case 'record':  return handleRecord(req, res, ctx.user);
-      default:        return res.status(400).json({ error: 'invalid_type', allowed: ['shuttle','rc','tariff','record'] });
+/* ============== SYNC ============== */
+async function handleSyncGet(req, res) {
+  const [entries, tariffs, meta] = await Promise.all([
+    loadJson(K_ENTRIES, []),
+    loadJson(K_TARIFFS, DEFAULT_TARIFFS),
+    loadJson(K_META,    { syncedAt: null, syncedFrom: null, entryCount: 0 }),
+  ]);
+  return res.status(200).json({
+    ok: true,
+    entries,
+    tariffs,
+    meta,
+    source: 'ipost-tarif-dashboard',
+  });
+}
+
+async function handleSyncPost(req, res) {
+  // Body может быть object или строкой
+  let body = req.body;
+  if (typeof body === 'string') {
+    try { body = JSON.parse(body); } catch { return res.status(400).json({ error: 'invalid_json' }); }
+  }
+  if (!body || typeof body !== 'object') {
+    return res.status(400).json({ error: 'invalid_payload' });
+  }
+
+  const updates = {};
+
+  // Entries
+  if (Array.isArray(body.entries)) {
+    if (body.entries.length > MAX_ENTRIES) {
+      return res.status(413).json({ error: 'too_many_entries', max: MAX_ENTRIES });
     }
+    const clean = body.entries.map(sanitizeEntry).filter(Boolean);
+    await saveJson(K_ENTRIES, clean);
+    updates.entries = clean.length;
+  }
+
+  // Tariffs
+  if (Array.isArray(body.tariffs)) {
+    const clean = body.tariffs.map(sanitizeTariffRow).filter(Boolean);
+    await saveJson(K_TARIFFS, clean);
+    updates.tariffs = clean.length;
+  }
+
+  // Origin / source метка
+  const origin = req.headers.origin || req.headers.referer || 'unknown';
+  const ua     = req.headers['user-agent'] || '';
+  const meta = {
+    syncedAt:   Date.now(),
+    syncedFrom: origin,
+    entryCount: updates.entries ?? null,
+    tariffCount: updates.tariffs ?? null,
+    ua: String(ua).slice(0, 200),
+  };
+  await saveJson(K_META, meta);
+
+  return res.status(200).json({ ok: true, ...updates, meta });
+}
+
+async function handleSyncClear(req, res, me) {
+  if (!me || !isDirector(me)) {
+    return res.status(403).json({ error: 'forbidden', message: 'director_required' });
+  }
+  await Promise.all([
+    saveJson(K_ENTRIES, []),
+    saveJson(K_TARIFFS, DEFAULT_TARIFFS),
+    saveJson(K_META,    { syncedAt: null, syncedFrom: null, entryCount: 0 }),
+  ]);
+  return res.status(200).json({ ok: true, cleared: true });
+}
+
+/* ============== HANDLER ============== */
+export default async function handler(req, res) {
+  // CORS preflight всегда
+  if (req.method === 'OPTIONS') {
+    setCors(res);
+    return res.status(204).end();
+  }
+
+  const url = new URL(req.url, 'http://x');
+  const type = url.searchParams.get('type') || 'sync';
+
+  try {
+    if (type === 'sync') {
+      // Публично, с CORS
+      setCors(res);
+      res.setHeader('Cache-Control', 'no-store');
+      if (req.method === 'GET')  return await handleSyncGet(req, res);
+      if (req.method === 'POST') return await handleSyncPost(req, res);
+      return res.status(405).json({ error: 'method_not_allowed' });
+    }
+
+    if (type === 'clear') {
+      const ctx = await requireAuth(req, res);
+      if (!ctx) return;
+      if (req.method === 'DELETE') return await handleSyncClear(req, res, ctx.user);
+      return res.status(405).json({ error: 'method_not_allowed' });
+    }
+
+    // Совместимость со старыми вызовами — отдаём пустые массивы,
+    // чтобы клиент не падал, пока не обновится. Все типы кроме sync теперь deprecated.
+    if (['shuttle','rc','tariff','record'].includes(type)) {
+      setCors(res);
+      if (req.method === 'GET') {
+        if (type === 'shuttle') return res.status(200).json({ shuttles: [], _deprecated: true });
+        if (type === 'rc')      return res.status(200).json({ rc: [],       _deprecated: true });
+        if (type === 'tariff')  return res.status(200).json({ tariffs: {},  _deprecated: true });
+        if (type === 'record')  return res.status(200).json({ records: [],  totals: { kg:0, revenue:0, count:0 }, _deprecated: true });
+      }
+      return res.status(410).json({ error: 'deprecated', message: 'use type=sync' });
+    }
+
+    return res.status(400).json({ error: 'invalid_type', allowed: ['sync', 'clear'] });
   } catch (e) {
     console.error('[api/shuttles-rc] error:', e);
     return res.status(500).json({ error: 'server_error', message: String(e?.message || e) });

@@ -599,6 +599,33 @@
   .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
   .btn.primary:hover { filter: brightness(1.08); }
 
+  /* Sync badge for shuttle/RC pages */
+  .src-badge {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 14px; padding: 10px 14px; border-radius: 10px;
+    font-size: 12px; margin-bottom: 14px;
+    background: linear-gradient(90deg, rgba(60, 203, 255, 0.08), rgba(60, 203, 255, 0.02));
+    border: 1px solid rgba(60, 203, 255, 0.2);
+  }
+  .src-badge-ok    { color: var(--text); }
+  .src-badge-warn  {
+    background: linear-gradient(90deg, rgba(255, 184, 64, 0.12), rgba(255, 184, 64, 0.02));
+    border-color: rgba(255, 184, 64, 0.35);
+    color: var(--text);
+  }
+  .src-badge .link, button.link {
+    background: none; border: none; padding: 0 4px;
+    color: var(--accent); font-size: 12px; font-weight: 600;
+    cursor: pointer; text-decoration: underline;
+  }
+  .src-badge .link:hover { filter: brightness(1.2); }
+  kbd {
+    display: inline-block; padding: 1px 6px;
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 4px; font-family: JetBrains Mono, monospace;
+    font-size: 10.5px; font-weight: 600;
+  }
+
   /* TOAST */
   .toast-wrap {
     position: fixed; bottom: 22px; right: 22px; z-index: 200;
@@ -3781,93 +3808,89 @@ function renderComingSoonLogistics(parent, title) {
   parent.appendChild(box);
 }
 
-/* === Сводка шатлов и РЦ (для вкладок Home/Analytics) === */
+/* === Сводка шатлов и РЦ (для вкладок Home/Analytics, данные из ipost-tarif-dashboard) === */
 async function renderShuttlesRCSummary(parent, title) {
-  const loading = el('div', { class: 'card', style: 'padding:30px; text-align:center; color:var(--text-muted);', html: 'Загрузка учёта шатлов и РЦ…' });
+  const loading = el('div', { class: 'card', style: 'padding:30px; text-align:center; color:var(--text-muted);', html: 'Загрузка учёта шатлов и РЦ из ipost-tarif-dashboard…' });
   parent.appendChild(loading);
 
-  let shuttles = [], rcs = [], records = [], totals = { kg: 0, revenue: 0, count: 0 };
-  try {
-    const [sj, rj, recj] = await Promise.all([
-      srcFetch('shuttle').catch(() => ({ shuttles: [] })),
-      srcFetch('rc').catch(() => ({ rc: [] })),
-      // last 30 days
-      (async () => {
-        const today = new Date();
-        const past = new Date(today.getTime() - 30 * 86400000);
-        const qs = 'from=' + past.toISOString().slice(0,10) + '&to=' + today.toISOString().slice(0,10);
-        return srcFetch('record', { query: qs }).catch(() => ({ records: [], totals: { kg:0, revenue:0, count:0 } }));
-      })(),
-    ]);
-    shuttles = sj.shuttles || [];
-    rcs      = rj.rc || [];
-    records  = recj.records || [];
-    totals   = recj.totals  || totals;
-  } catch (e) {
+  try { await srcRefresh(); } catch (e) {
     loading.innerHTML = `<div style="color:var(--danger);">Ошибка: ${e.message}</div>`;
     return;
   }
   parent.removeChild(loading);
 
+  // Sync-бейдж
+  parent.appendChild(el('div', { html: srcSyncBadge() }));
+
+  // За последние 30 дней
+  const today = new Date();
+  const past  = new Date(today.getTime() - 30 * 86400000);
+  const from  = past.toISOString().slice(0, 10);
+  const to    = today.toISOString().slice(0, 10);
+  const recent = srcFilterEntries(SRC.entries, { from, to });
+
+  const totalKg  = recent.reduce((s, e) => s + (Number(e.kg)      || 0), 0);
+  const totalRev = recent.reduce((s, e) => s + (Number(e.revenue) || 0), 0);
+  const shuttleEntries = recent.filter(e => e.service === 'shuttle');
+  const rcEntries      = recent.filter(e => e.service !== 'shuttle');
+  const ijaraEntries   = recent.filter(e => e.partner === 'IJARA');
+  const hamkorEntries  = recent.filter(e => e.partner === 'HAMKOR');
+  const regionsUsed    = new Set(recent.map(e => e.region)).size;
+
   // Header
   parent.appendChild(el('div', { class: 'section-title', html: `<span class="dot"></span>${title} <span class="count">за 30 дней</span>` }));
 
-  // KPI tiles
-  const activeShuttles = shuttles.filter(s => s.status === 'active' || s.status === 'on_route').length;
-  const activeRC       = rcs.filter(r => r.status === 'active').length;
-  const ijaraRC        = rcs.filter(r => r.partnerType === 'IJARA').length;
-  const hamkorRC       = rcs.filter(r => r.partnerType === 'HAMKOR').length;
-  const regions        = new Set(rcs.map(r => r.regionKey)).size;
-
-  // Group totals by service
+  // По услугам
   const byService = {};
-  for (const s of SRC_SERVICES) byService[s] = { kg: 0, revenue: 0 };
-  for (const r of records) {
-    if (byService[r.service]) {
-      byService[r.service].kg      += Number(r.kg) || 0;
-      byService[r.service].revenue += Number(r.revenue) || 0;
+  for (const s of SRC_SERVICES) byService[s.key] = { kg: 0, revenue: 0, count: 0 };
+  for (const e of recent) {
+    if (byService[e.service]) {
+      byService[e.service].kg      += Number(e.kg)      || 0;
+      byService[e.service].revenue += Number(e.revenue) || 0;
+      byService[e.service].count   += 1;
     }
   }
 
   const kg = el('div', { class: 'kpi-grid' });
   [
-    { l: 'Шатлов в строю',   v: fmt(activeShuttles), u: '/' + shuttles.length, icon: 'fleet', kind: 'kpi-success' },
-    { l: 'РЦ активных',      v: fmt(activeRC),       u: '/' + rcs.length,      icon: 'branches', kind: '' },
-    { l: 'Регионов с РЦ',    v: fmt(regions),        u: '',                    icon: 'map', kind: 'kpi-purple' },
-    { l: 'IJARA / HAMKOR',   v: fmt(ijaraRC) + ' / ' + fmt(hamkorRC), u: '',   icon: 'finance', kind: '' },
-    { l: 'Записей за 30 дн', v: fmt(totals.count),   u: '',                    icon: 'package', kind: '' },
-    { l: 'Общий вес',        v: fmt(totals.kg),      u: 'кг',                  icon: 'fleet', kind: 'kpi-purple' },
-    { l: 'Общий доход',      v: fmtMoney(totals.revenue/1e6), u: 'млн UZS',    icon: 'money', kind: 'kpi-success' },
-    { l: 'Средн. чек',       v: totals.count ? fmtMoney((totals.revenue/totals.count)/1e3) : '0', u: 'тыс UZS', icon: 'trend', kind: '' },
+    { l: 'Записей',          v: fmt(recent.length),     u: '',          icon: 'package',  kind: '' },
+    { l: 'Общий вес',        v: fmt(totalKg),           u: 'кг',        icon: 'fleet',    kind: 'kpi-purple' },
+    { l: 'Общий доход',      v: fmtMoney(totalRev/1e6), u: 'млн UZS',   icon: 'money',    kind: 'kpi-success' },
+    { l: 'Средн. чек',       v: recent.length ? fmtMoney((totalRev/recent.length)/1e3) : '0', u: 'тыс UZS', icon: 'trend', kind: '' },
+    { l: 'SHUTTLE / RC',     v: fmt(shuttleEntries.length) + ' / ' + fmt(rcEntries.length), u: 'зап.', icon: 'logistics', kind: 'kpi-purple' },
+    { l: 'IJARA / HAMKOR',   v: fmt(ijaraEntries.length) + ' / ' + fmt(hamkorEntries.length), u: 'зап.', icon: 'finance', kind: '' },
+    { l: 'Регионов',         v: fmt(regionsUsed),       u: '',          icon: 'map',      kind: '' },
+    { l: 'Всего тарифов',    v: fmt((SRC.tariffs || []).length), u: '', icon: 'finance',  kind: 'kpi-warning' },
   ].forEach(k => kg.appendChild(el('div', { class: 'kpi ' + k.kind, html: `
     <div class="kpi-head"><div class="kpi-label">${k.l}</div><div class="kpi-icon">${ICONS[k.icon] || ''}</div></div>
     <div class="kpi-value">${k.v}<span class="unit">${k.u}</span></div>
   `})));
   parent.appendChild(kg);
 
-  // Service breakdown
+  // Разбивка по услугам
   const svcCard = el('div', { class: 'card', style: 'margin-top:14px;' });
   svcCard.appendChild(el('div', { class: 'card-head', html: `
-    <div><div class="h">Разбивка по услугам</div><div class="sub">Кг и доход за последние 30 дней</div></div>
+    <div><div class="h">Разбивка по услугам</div><div class="sub">Кг и доход за 30 дней · из ipost-tarif-dashboard</div></div>
     <div class="card-head-actions">
       <button class="chip" onclick="goTo('tariff-history')">История →</button>
     </div>
   `}));
   const tbl = el('table', { class: 'table' });
   tbl.innerHTML = `
-    <thead><tr><th>Услуга</th><th style="text-align:right;">Кг</th><th style="text-align:right;">Доход (UZS)</th><th>Доля выручки</th></tr></thead>
+    <thead><tr><th>Услуга</th><th style="text-align:right;">Записей</th><th style="text-align:right;">Кг</th><th style="text-align:right;">Доход (UZS)</th><th>Доля выручки</th></tr></thead>
     <tbody>
       ${SRC_SERVICES.map(s => {
-        const d = byService[s];
-        const pct = totals.revenue ? (d.revenue / totals.revenue * 100) : 0;
+        const d = byService[s.key];
+        const pct = totalRev ? (d.revenue / totalRev * 100) : 0;
         return `<tr>
-          <td><span class="pill brand">${s}</span></td>
+          <td><span class="pill brand" style="background:${s.color}22; color:${s.color};">${s.label}</span></td>
+          <td style="text-align:right; font-family:JetBrains Mono;">${fmt(d.count)}</td>
           <td style="text-align:right; font-family:JetBrains Mono;">${fmt(d.kg)}</td>
           <td style="text-align:right; font-family:JetBrains Mono; font-weight:700; color:var(--accent);">${fmt(d.revenue)}</td>
           <td>
             <div style="display:flex; align-items:center; gap:8px;">
               <span style="font-family:JetBrains Mono; min-width:42px; font-weight:600;">${pct.toFixed(1)}%</span>
-              <div class="mini-bar" style="width:120px;"><span style="width:${pct}%"></span></div>
+              <div class="mini-bar" style="width:120px;"><span style="width:${pct}%; background:${s.color};"></span></div>
             </div>
           </td>
         </tr>`;
@@ -3881,10 +3904,10 @@ async function renderShuttlesRCSummary(parent, title) {
   const qa = el('div', { class: 'card', style: 'margin-top:14px; padding:16px;' });
   qa.innerHTML = `
     <div style="display:flex; gap:10px; flex-wrap:wrap;">
-      <button class="btn primary" onclick="goTo('tariff-entry')">➕ Новая запись (учёт кг)</button>
-      <button class="btn" onclick="goTo('shuttles')">🚛 Шатлы (${shuttles.length})</button>
-      <button class="btn" onclick="goTo('rc')">🏭 РЦ (${rcs.length})</button>
-      <button class="btn" onclick="goTo('tariffs')">💰 Управление тарифами</button>
+      <button class="btn btn-primary" onclick="openSyncDialog()">🔄 Синхронизировать с ipost-tarif-dashboard</button>
+      <button class="btn" onclick="goTo('shuttles')">🚛 SHUTTLE (${shuttleEntries.length})</button>
+      <button class="btn" onclick="goTo('rc')">🏭 RC (${rcEntries.length})</button>
+      <button class="btn" onclick="goTo('tariffs')">💰 Тарифы</button>
       <button class="btn" onclick="goTo('tariff-history')">📊 История</button>
     </div>
   `;
@@ -4306,53 +4329,189 @@ function filterMapLayer(mode) {
   document.getElementById('layer-' + mode)?.classList.add('active');
 }
 
-/* ==================== ШАТЛЫ / РЦ — общие данные ==================== */
-const SRC_REGIONS = [
-  { key: 'tashkent',        name: 'Ташкент'         },
-  { key: 'tashkent_region', name: 'Ташкентская обл.'},
-  { key: 'samarkand',       name: 'Самарканд'       },
-  { key: 'bukhara',         name: 'Бухара'          },
-  { key: 'fergana',         name: 'Фергана'         },
-  { key: 'andijan',         name: 'Андижан'         },
-  { key: 'namangan',        name: 'Наманган'        },
-  { key: 'qashqadaryo',     name: 'Кашкадарья'      },
-  { key: 'surxondaryo',     name: 'Сурхандарья'     },
-  { key: 'navoiy',          name: 'Навои'           },
-  { key: 'jizzax',          name: 'Джизак'          },
-  { key: 'sirdaryo',        name: 'Сырдарья'        },
-  { key: 'xorazm',          name: 'Хорезм'          },
-  { key: 'karakalpak',      name: 'Каракалпакстан'  },
-];
-const SRC_SERVICES = ['IPOST', 'KG', 'EMU', 'BTS', 'SHUTTLE'];
-const SRC_PARTNERS = ['IJARA', 'HAMKOR'];
+/* ==================== ШАТЛЫ / РЦ — данные из ipost-tarif-dashboard ====================
+ *
+ * Источник: ipost-tarif-dashboard.vercel.app (SPA, данные в localStorage)
+ * Мост:     POST/GET /api/shuttles-rc?type=sync (CORS-открыт)
+ * Структура: entries[{id,date,region,partner,service,kg,rate,revenue,note,author,createdAt}]
+ *            tariffs[{region,partner,ipost,emu,bts,shuttle}]
+ */
+const TARIF_SRC_URL = 'https://ipost-tarif-dashboard.vercel.app';
 
-function srcRegionName(k) {
-  const r = SRC_REGIONS.find(x => x.key === k);
-  return r ? r.name : (k || '—');
+// 13 регионов из тарифного дашборда (узбекские названия)
+const SRC_REGIONS = [
+  'Andijon','Namangan',"Farg'ona","Qo'qon",'Jizzax','Sirdaryo',
+  'Samarqand','Qashqadaryo','Surxondaryo','Navoiy','Buxoro','Xorazm','Qoraqalpogʻiston',
+];
+
+// 4 услуги (ipost / emu / bts / shuttle) — exact match с тарифным дашбордом
+const SRC_SERVICES = [
+  { key: 'ipost',   label: 'IPOST KG', color: '#3CCBFF' },
+  { key: 'emu',     label: 'EMU',      color: '#FFB840' },
+  { key: 'bts',     label: 'BTS',      color: '#B888FF' },
+  { key: 'shuttle', label: 'SHUTTLE',  color: '#FF5577' },
+];
+const SRC_SVC_RC      = SRC_SERVICES.filter(s => s.key !== 'shuttle');
+const SRC_SVC_SHUTTLE = SRC_SERVICES.filter(s => s.key === 'shuttle');
+const SRC_PARTNERS    = ['IJARA', 'HAMKOR', '—'];
+
+function srcServiceLabel(k) {
+  const s = SRC_SERVICES.find(x => x.key === k);
+  return s ? s.label : (k || '').toUpperCase();
+}
+function srcServiceColor(k) {
+  const s = SRC_SERVICES.find(x => x.key === k);
+  return s ? s.color : '#5A6D94';
 }
 
-// Stash for client-side: shuttles, rc, tariffs, records (loaded on demand per page)
-const SRC = {
-  shuttles: null,
-  rc:       null,
-  tariffs:  null,
-  records:  null,
-};
+// Кэш данных (refresh при заходе на любую страницу секции)
+const SRC = { entries: null, tariffs: null, meta: null, loadedAt: 0 };
 
-async function srcFetch(type, opts = {}) {
-  const method = opts.method || 'GET';
-  const url = '/api/shuttles-rc?type=' + type + (opts.query ? '&' + opts.query : '');
-  const headers = { Authorization: 'Bearer ' + STATE.token };
-  if (opts.body) headers['Content-Type'] = 'application/json';
-  const r = await fetch(url, { method, headers, body: opts.body ? JSON.stringify(opts.body) : undefined });
+async function srcFetchSync() {
+  const r = await fetch('/api/shuttles-rc?type=sync', { cache: 'no-store' });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.message || j.error || ('HTTP ' + r.status));
   return j;
 }
-async function srcLoadShuttles() { const j = await srcFetch('shuttle'); SRC.shuttles = j.shuttles || []; return SRC.shuttles; }
-async function srcLoadRC()       { const j = await srcFetch('rc');      SRC.rc       = j.rc       || []; return SRC.rc; }
-async function srcLoadTariffs()  { const j = await srcFetch('tariff');  SRC.tariffs  = j.tariffs  || {}; return SRC.tariffs; }
-async function srcLoadRecords(qs = '') { const j = await srcFetch('record', { query: qs }); SRC.records = j.records || []; return { records: SRC.records, totals: j.totals }; }
+async function srcRefresh() {
+  const j = await srcFetchSync();
+  SRC.entries  = Array.isArray(j.entries) ? j.entries : [];
+  SRC.tariffs  = Array.isArray(j.tariffs) ? j.tariffs : [];
+  SRC.meta     = j.meta || { syncedAt: null };
+  SRC.loadedAt = Date.now();
+  return SRC;
+}
+
+function srcSyncBadge() {
+  const m = SRC.meta || {};
+  const total = (SRC.entries || []).length;
+  if (!m.syncedAt) {
+    return `<div class="src-badge src-badge-warn">⚠ Данные не синхронизированы · <button class="link" onclick="openSyncDialog()">Настроить →</button></div>`;
+  }
+  const ago = Math.round((Date.now() - m.syncedAt) / 60000);
+  const agoTxt = ago < 1 ? 'только что' : ago < 60 ? ago + ' мин назад' : Math.round(ago/60) + ' ч назад';
+  return `<div class="src-badge src-badge-ok">
+    <span>🔗 Источник: <b>ipost-tarif-dashboard</b> · ${total} записей · обновлено ${agoTxt}</span>
+    <button class="link" onclick="openSyncDialog()">🔄 Синхронизировать</button>
+  </div>`;
+}
+
+/* ======= Sync dialog ======= */
+function openSyncDialog() {
+  // Готовим однострочник для консоли тарифного дашборда
+  const apiUrl = location.origin + '/api/shuttles-rc?type=sync';
+  const snippet = `fetch(${JSON.stringify(apiUrl)},{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({entries:JSON.parse(localStorage.getItem('ipost-tarif-entries')||'[]'),tariffs:JSON.parse(localStorage.getItem('ipost-tarif-tariffs')||'null')})}).then(r=>r.json()).then(j=>alert('✓ Загружено: '+(j.entries||0)+' записей, '+(j.tariffs||0)+' тарифов')).catch(e=>alert('Ошибка: '+e.message))`;
+  const bookmarklet = 'javascript:' + encodeURIComponent('(function(){' + snippet + '})();void(0);');
+
+  const html = `
+    <div class="modal-head" style="padding:16px 18px 8px; border-bottom:1px solid var(--border);">
+      <div style="font-size:15px; font-weight:700;">🔄 Синхронизация с ipost-tarif-dashboard</div>
+      <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Данные тарифного дашборда хранятся в браузере (localStorage). Перенесите их сюда одним из 3 способов:</div>
+    </div>
+    <div style="padding:14px 18px; max-height:60vh; overflow-y:auto;">
+
+      <div style="margin-bottom:18px;">
+        <div style="font-size:13px; font-weight:700; color:var(--accent); margin-bottom:6px;">💡 Способ 1 · Bookmarklet (1 клик)</div>
+        <div style="font-size:11.5px; color:var(--text-muted); margin-bottom:8px;">
+          Перетащи эту кнопку в закладки браузера. Открой <a href="${TARIF_SRC_URL}" target="_blank" style="color:var(--accent);">${TARIF_SRC_URL}</a> и кликни закладку — данные сразу прилетят сюда.
+        </div>
+        <div style="text-align:center; padding:10px; background:var(--panel-2); border-radius:8px;">
+          <a href="${bookmarklet}" draggable="true"
+             onclick="event.preventDefault(); toast('Перетащи эту ссылку в закладки браузера', 'warning'); return false;"
+             style="display:inline-block; padding:10px 18px; background:var(--accent); color:#fff; border-radius:8px; text-decoration:none; font-weight:700; font-size:13px; cursor:grab;">
+             📌 iPost → Sync Tarif
+          </a>
+        </div>
+      </div>
+
+      <div style="margin-bottom:18px;">
+        <div style="font-size:13px; font-weight:700; color:var(--accent); margin-bottom:6px;">⌨️ Способ 2 · Консоль (F12)</div>
+        <div style="font-size:11.5px; color:var(--text-muted); margin-bottom:8px;">
+          1. Открой <a href="${TARIF_SRC_URL}" target="_blank" style="color:var(--accent);">${TARIF_SRC_URL}</a><br>
+          2. Нажми <kbd>F12</kbd> → вкладка <b>Console</b><br>
+          3. Скопируй и вставь снизу, нажми Enter:
+        </div>
+        <textarea readonly onclick="this.select()" style="width:100%; height:80px; padding:10px; background:var(--panel-2); border:1px solid var(--border); border-radius:8px; font-family:JetBrains Mono, monospace; font-size:10.5px; color:var(--text); resize:vertical;">${snippet}</textarea>
+        <button class="btn" style="margin-top:6px;" onclick="navigator.clipboard.writeText(this.previousElementSibling.value); toast('✓ Скопировано в буфер', 'success');">📋 Скопировать</button>
+      </div>
+
+      <div style="margin-bottom:8px;">
+        <div style="font-size:13px; font-weight:700; color:var(--accent); margin-bottom:6px;">📥 Способ 3 · Вставь JSON вручную</div>
+        <div style="font-size:11.5px; color:var(--text-muted); margin-bottom:6px;">
+          На тарифном дашборде в консоли запусти <code style="background:var(--panel-2); padding:2px 6px; border-radius:4px; font-size:10px;">copy(JSON.stringify({entries:JSON.parse(localStorage.getItem('ipost-tarif-entries')||'[]'),tariffs:JSON.parse(localStorage.getItem('ipost-tarif-tariffs')||'null')}))</code><br>
+          Затем вставь сюда:
+        </div>
+        <textarea id="sync-paste" placeholder='{"entries":[...],"tariffs":[...]}' style="width:100%; height:100px; padding:10px; background:var(--panel-2); border:1px solid var(--border); border-radius:8px; font-family:JetBrains Mono, monospace; font-size:11px; color:var(--text); resize:vertical;"></textarea>
+      </div>
+
+      <div class="src-badge src-badge-ok" style="margin-top:14px;">
+        ${SRC.meta?.syncedAt
+          ? `✅ Последняя синхронизация: ${new Date(SRC.meta.syncedAt).toLocaleString('ru-RU')} · ${(SRC.entries||[]).length} записей · ${(SRC.tariffs||[]).length} тарифов`
+          : '⚠ Ещё не синхронизировано'}
+      </div>
+    </div>
+    <div class="modal-actions" style="padding:10px 18px 14px; display:flex; justify-content:space-between; gap:8px; border-top:1px solid var(--border);">
+      <button class="btn" onclick="window.open('${TARIF_SRC_URL}', '_blank')">🌐 Открыть ipost-tarif-dashboard</button>
+      <div style="display:flex; gap:8px;">
+        <button class="btn" onclick="closeModal()">Закрыть</button>
+        <button class="btn btn-primary" onclick="submitSyncPaste()">Загрузить из JSON</button>
+      </div>
+    </div>
+  `;
+  showModal(html);
+}
+
+async function submitSyncPaste() {
+  const raw = $('#sync-paste').value.trim();
+  if (!raw) { toast('Вставь JSON в поле', 'warning'); return; }
+  let body;
+  try { body = JSON.parse(raw); }
+  catch (e) { toast('Невалидный JSON: ' + e.message, 'danger'); return; }
+  try {
+    const r = await fetch('/api/shuttles-rc?type=sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.message || j.error);
+    toast('✓ Загружено: ' + (j.entries || 0) + ' записей, ' + (j.tariffs || 0) + ' тарифов', 'success');
+    closeModal();
+    await srcRefresh();
+    renderPage(STATE.page);
+  } catch (e) { toast('Ошибка: ' + e.message, 'danger'); }
+}
+
+/* ======= Helpers ======= */
+function srcFilterEntries(entries, opts = {}) {
+  return (entries || []).filter(e => {
+    if (opts.service && e.service !== opts.service) return false;
+    if (opts.serviceIn && !opts.serviceIn.includes(e.service)) return false;
+    if (opts.region  && e.region  !== opts.region)  return false;
+    if (opts.partner && e.partner !== opts.partner) return false;
+    if (opts.from    && e.date    <  opts.from)     return false;
+    if (opts.to      && e.date    >  opts.to)       return false;
+    return true;
+  });
+}
+function srcAggregateBy(entries, by) {
+  const map = new Map();
+  for (const e of entries) {
+    const key = by === 'region' ? e.region : by === 'service' ? e.service : by === 'partner' ? e.partner : 'all';
+    if (!map.has(key)) map.set(key, { key, kg: 0, revenue: 0, count: 0 });
+    const a = map.get(key);
+    a.kg      += Number(e.kg)      || 0;
+    a.revenue += Number(e.revenue) || 0;
+    a.count   += 1;
+  }
+  return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue);
+}
+function fmtPlainDate(s) { return s || '—'; }
+function tarifPartnerPill(p) {
+  if (p === 'IJARA')  return '<span class="pill purple">IJARA</span>';
+  if (p === 'HAMKOR') return '<span class="pill warning">HAMKOR</span>';
+  return '<span class="pill muted">' + (p || '—') + '</span>';
+}
 
 function srcEmpty(parent, icon, title, sub, btnText, btnAction) {
   const box = el('div', { style: 'text-align:center; padding:60px 20px; color:var(--text-muted); font-size:13px;' });
@@ -4383,85 +4542,68 @@ function srcShowModal(title, bodyHtml, onSave, saveLabel) {
   showModal(html);
 }
 
-/* ==================== PAGE: ШАТЛЫ ==================== */
+/* ==================== PAGE: ШАТЛЫ (SHUTTLE — из ipost-tarif-dashboard) ==================== */
 async function renderShuttles() {
   const c = $('#content');
   c.innerHTML = '';
   const p = el('div', { class: 'page active' });
   c.appendChild(p);
 
-  // Loading state
-  p.appendChild(el('div', { class: 'card', html: '<div style="padding:30px; text-align:center; color:var(--text-muted);">Загрузка шатлов…</div>' }));
-
-  let shuttles = [];
-  try {
-    shuttles = await srcLoadShuttles();
-  } catch (e) {
-    p.innerHTML = '';
+  try { await srcRefresh(); } catch (e) {
     p.appendChild(el('div', { class: 'card', html: `<div style="padding:30px; text-align:center; color:var(--danger);">Ошибка загрузки: ${e.message}</div>` }));
     return;
   }
-  p.innerHTML = '';
 
-  // KPIs
-  const total      = shuttles.length;
-  const active     = shuttles.filter(s => s.status === 'active' || s.status === 'on_route').length;
-  const onRoute    = shuttles.filter(s => s.status === 'on_route').length;
-  const inMaint    = shuttles.filter(s => s.status === 'maintenance').length;
-  const off        = shuttles.filter(s => s.status === 'off').length;
-  const totalCap   = shuttles.reduce((s, x) => s + (Number(x.capacityKg) || 0), 0);
+  // Sync badge
+  p.appendChild(el('div', { html: srcSyncBadge() }));
 
+  // Только SHUTTLE-записи
+  const all       = srcFilterEntries(SRC.entries, { service: 'shuttle' });
+  const totalKg   = all.reduce((s, e) => s + (Number(e.kg) || 0), 0);
+  const totalRev  = all.reduce((s, e) => s + (Number(e.revenue) || 0), 0);
+  const ijara     = all.filter(e => e.partner === 'IJARA');
+  const hamkor    = all.filter(e => e.partner === 'HAMKOR');
+  const regions   = new Set(all.map(e => e.region)).size;
+  const dates     = new Set(all.map(e => e.date)).size;
+
+  // KPI
   const kg = el('div', { class: 'kpi-grid' });
   [
-    { l: 'Всего шатлов',    v: fmt(total),    u: '',    icon: 'fleet', kind: '' },
-    { l: 'В строю',         v: fmt(active),   u: '',    icon: 'star',  kind: 'kpi-success' },
-    { l: 'На маршруте',     v: fmt(onRoute),  u: '',    icon: 'logistics', kind: 'kpi-purple' },
-    { l: 'На ТО',           v: fmt(inMaint),  u: '',    icon: 'alert', kind: 'kpi-warning' },
-    { l: 'Не работают',     v: fmt(off),      u: '',    icon: 'alert', kind: 'kpi-danger' },
-    { l: 'Суммарная грузоп.', v: fmt(totalCap), u: 'кг', icon: 'package', kind: '' },
+    { l: 'Записей SHUTTLE',  v: fmt(all.length),       u: '',        icon: 'package',  kind: '' },
+    { l: 'Всего кг',         v: fmt(totalKg),          u: 'кг',      icon: 'fleet',    kind: 'kpi-purple' },
+    { l: 'Доход',            v: fmtMoney(totalRev/1e6), u: 'млн UZS', icon: 'money',   kind: 'kpi-success' },
+    { l: 'Активных дней',    v: fmt(dates),            u: '',        icon: 'clock',    kind: '' },
+    { l: 'Регионов',         v: fmt(regions),          u: '',        icon: 'map',      kind: 'kpi-purple' },
+    { l: 'IJARA / HAMKOR',   v: fmt(ijara.length) + ' / ' + fmt(hamkor.length), u: '', icon: 'finance', kind: '' },
   ].forEach(k => kg.appendChild(el('div', { class: 'kpi ' + k.kind, html: `
     <div class="kpi-head"><div class="kpi-label">${k.l}</div><div class="kpi-icon">${ICONS[k.icon] || ''}</div></div>
     <div class="kpi-value">${k.v}<span class="unit">${k.u}</span></div>
   `})));
   p.appendChild(kg);
 
-  // Header card
+  // Группировка по регионам
+  const byRegion = srcAggregateBy(all, 'region');
   const card = el('div', { class: 'card', style: 'margin-top:14px;' });
   card.appendChild(el('div', { class: 'card-head', html: `
-    <div><div class="h">Реестр шатлов</div><div class="sub">${shuttles.length} ТС · учёт независимо от dispatch/курьерской</div></div>
-    <div class="card-head-actions">
-      <button class="btn primary" onclick="openShuttleDialog()">+ Добавить шатл</button>
-    </div>
+    <div><div class="h">SHUTTLE по регионам</div><div class="sub">Из тарифного дашборда · только service=shuttle</div></div>
   `}));
-
-  if (!shuttles.length) {
-    srcEmpty(card, '🚛', 'Шатлов пока нет', 'Добавьте первый шатл — укажите код, регион, грузоподъёмность и водителя', '+ Добавить шатл', 'openShuttleDialog()');
+  if (!all.length) {
+    srcEmpty(card, '🚛', 'Нет данных SHUTTLE',
+      `На <a href="${TARIF_SRC_URL}" target="_blank" style="color:var(--accent);">${TARIF_SRC_URL}</a> переключись на режим <b>SHUTTLE</b>, введи кг и нажми 🔄 синхронизировать.`,
+      '🔄 Синхронизировать сейчас', 'openSyncDialog()');
   } else {
     const tbl = el('table', { class: 'table' });
     tbl.innerHTML = `
-      <thead><tr>
-        <th>Код</th><th>Гос. номер</th><th>Регион</th><th>Грузоп. (кг)</th>
-        <th>Водитель</th><th>Телефон</th><th>Статус</th><th></th>
-      </tr></thead>
+      <thead><tr><th>Регион</th><th style="text-align:right;">Записей</th><th style="text-align:right;">Кг</th><th style="text-align:right;">Доход (UZS)</th><th>Доля</th></tr></thead>
       <tbody>
-        ${shuttles.map(s => {
-          const stat = s.status === 'on_route' ? '<span class="pill success">На маршруте</span>'
-            : s.status === 'active' ? '<span class="pill brand">Активен</span>'
-            : s.status === 'maintenance' ? '<span class="pill warning">ТО</span>'
-            : s.status === 'off' ? '<span class="pill danger">Не работает</span>'
-            : '<span class="pill muted">' + (s.status||'—') + '</span>';
+        ${byRegion.map(r => {
+          const pct = totalRev ? (r.revenue/totalRev*100) : 0;
           return `<tr>
-            <td style="font-family:JetBrains Mono; font-weight:700;">${s.code}</td>
-            <td style="font-family:JetBrains Mono;">${s.plate || '—'}</td>
-            <td>${srcRegionName(s.regionKey)}</td>
-            <td style="font-family:JetBrains Mono; font-weight:600;">${fmt(s.capacityKg)}</td>
-            <td>${s.driver || '<span style="color:var(--text-muted);">не назначен</span>'}</td>
-            <td style="font-family:JetBrains Mono; font-size:11px;">${s.driverPhone || ''}</td>
-            <td>${stat}</td>
-            <td style="text-align:right; white-space:nowrap;">
-              <button class="chip" onclick='openShuttleDialog(${JSON.stringify(s.id)})'>Изменить</button>
-              <button class="chip" style="color:var(--danger);" onclick='deleteShuttle(${JSON.stringify(s.id)})'>Удалить</button>
-            </td>
+            <td><b>${r.key}</b></td>
+            <td style="text-align:right; font-family:JetBrains Mono;">${fmt(r.count)}</td>
+            <td style="text-align:right; font-family:JetBrains Mono;">${fmt(r.kg)}</td>
+            <td style="text-align:right; font-family:JetBrains Mono; font-weight:700; color:var(--accent);">${fmt(r.revenue)}</td>
+            <td><div style="display:flex; align-items:center; gap:8px;"><span style="font-family:JetBrains Mono; min-width:42px; font-weight:600;">${pct.toFixed(1)}%</span><div class="mini-bar" style="width:100px;"><span style="width:${pct}%"></span></div></div></td>
           </tr>`;
         }).join('')}
       </tbody>
@@ -4469,455 +4611,251 @@ async function renderShuttles() {
     card.appendChild(tbl);
   }
   p.appendChild(card);
+
+  // Последние SHUTTLE-записи
+  if (all.length) {
+    const recent = el('div', { class: 'card', style: 'margin-top:14px;' });
+    recent.appendChild(el('div', { class: 'card-head', html: `<div><div class="h">Последние записи SHUTTLE</div><div class="sub">${Math.min(20, all.length)} из ${all.length}</div></div>` }));
+    const sorted = [...all].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, 20);
+    const tbl = el('table', { class: 'table' });
+    tbl.innerHTML = `
+      <thead><tr><th>Дата</th><th>Регион</th><th>Партнёр</th><th style="text-align:right;">Кг</th><th style="text-align:right;">Тариф</th><th style="text-align:right;">Доход (UZS)</th><th>Автор</th></tr></thead>
+      <tbody>
+        ${sorted.map(e => `<tr>
+          <td style="font-family:JetBrains Mono;">${e.date || '—'}</td>
+          <td>${e.region}</td>
+          <td>${tarifPartnerPill(e.partner)}</td>
+          <td style="text-align:right; font-family:JetBrains Mono;">${fmt(e.kg)}</td>
+          <td style="text-align:right; font-family:JetBrains Mono;">${fmt(e.rate)}</td>
+          <td style="text-align:right; font-family:JetBrains Mono; font-weight:700; color:var(--accent);">${fmt(e.revenue)}</td>
+          <td style="font-size:11px;">${e.author || '—'}</td>
+        </tr>`).join('')}
+      </tbody>
+    `;
+    recent.appendChild(tbl);
+    p.appendChild(recent);
+  }
 }
 
-function openShuttleDialog(id) {
-  const existing = id ? (SRC.shuttles || []).find(s => s.id === id) : null;
-  const s = existing || { code: '', plate: '', regionKey: 'tashkent', capacityKg: 1000, driver: '', driverPhone: '', status: 'active', notes: '' };
-  const body = `
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
-      <div><label class="lbl">Код шатла *</label><input id="sh-code" class="input" value="${s.code}" placeholder="SH-001"/></div>
-      <div><label class="lbl">Гос. номер</label><input id="sh-plate" class="input" value="${s.plate}" placeholder="01 A 123 BC"/></div>
-      <div><label class="lbl">Регион *</label><select id="sh-region" class="input">
-        ${SRC_REGIONS.map(r => `<option value="${r.key}" ${r.key === s.regionKey ? 'selected' : ''}>${r.name}</option>`).join('')}
-      </select></div>
-      <div><label class="lbl">Грузоп. (кг)</label><input id="sh-cap" class="input" type="number" min="0" value="${s.capacityKg}"/></div>
-      <div><label class="lbl">Водитель</label><input id="sh-drv" class="input" value="${s.driver}" placeholder="Ф.И.О."/></div>
-      <div><label class="lbl">Телефон</label><input id="sh-phone" class="input" value="${s.driverPhone}" placeholder="+998 ..."/></div>
-      <div style="grid-column:1/-1;"><label class="lbl">Статус</label><select id="sh-status" class="input">
-        <option value="active"      ${s.status==='active'?'selected':''}>Активен</option>
-        <option value="on_route"    ${s.status==='on_route'?'selected':''}>На маршруте</option>
-        <option value="maintenance" ${s.status==='maintenance'?'selected':''}>На ТО</option>
-        <option value="off"         ${s.status==='off'?'selected':''}>Не работает</option>
-      </select></div>
-      <div style="grid-column:1/-1;"><label class="lbl">Заметка</label><textarea id="sh-notes" class="input" rows="2">${s.notes || ''}</textarea></div>
-    </div>
-  `;
-  srcShowModal(existing ? 'Изменить шатл' : 'Новый шатл', body, () => saveShuttle(id), existing ? 'Сохранить' : 'Создать');
-}
-
-async function saveShuttle(id) {
-  const body = {
-    id,
-    code:        $('#sh-code').value.trim(),
-    plate:       $('#sh-plate').value.trim(),
-    regionKey:   $('#sh-region').value,
-    capacityKg:  Number($('#sh-cap').value) || 0,
-    driver:      $('#sh-drv').value.trim(),
-    driverPhone: $('#sh-phone').value.trim(),
-    status:      $('#sh-status').value,
-    notes:       $('#sh-notes').value.trim(),
-  };
-  if (!body.code) { toast('Укажите код шатла', 'danger'); return; }
-  try {
-    await srcFetch('shuttle', { method: id ? 'PUT' : 'POST', body });
-    toast('✓ ' + (id ? 'Шатл обновлён' : 'Шатл добавлен'), 'success');
-    closeModal();
-    renderPage(STATE.page);
-  } catch (e) { toast('Ошибка: ' + e.message, 'danger'); }
-}
-
-async function deleteShuttle(id) {
-  const s = (SRC.shuttles || []).find(x => x.id === id);
-  if (!s) return;
-  if (!confirm('Удалить шатл "' + s.code + '"?\n\nДействие необратимо.')) return;
-  try {
-    await srcFetch('shuttle', { method: 'DELETE', body: { id } });
-    toast('✓ Шатл удалён', 'success');
-    renderPage(STATE.page);
-  } catch (e) { toast('Ошибка: ' + e.message, 'danger'); }
-}
-
-/* ==================== PAGE: РЦ (РАСПРЕДЕЛИТЕЛЬНЫЕ ЦЕНТРЫ) ==================== */
+/* ==================== PAGE: РЦ (RC — IPOST/EMU/BTS из ipost-tarif-dashboard) ==================== */
 async function renderRC() {
   const c = $('#content');
   c.innerHTML = '';
   const p = el('div', { class: 'page active' });
   c.appendChild(p);
 
-  p.appendChild(el('div', { class: 'card', html: '<div style="padding:30px; text-align:center; color:var(--text-muted);">Загрузка РЦ…</div>' }));
-
-  let rcs = [];
-  try { rcs = await srcLoadRC(); }
-  catch (e) {
-    p.innerHTML = '';
+  try { await srcRefresh(); } catch (e) {
     p.appendChild(el('div', { class: 'card', html: `<div style="padding:30px; text-align:center; color:var(--danger);">Ошибка: ${e.message}</div>` }));
     return;
   }
-  p.innerHTML = '';
 
-  const total = rcs.length;
-  const active = rcs.filter(r => r.status === 'active').length;
-  const ijara = rcs.filter(r => r.partnerType === 'IJARA').length;
-  const hamkor = rcs.filter(r => r.partnerType === 'HAMKOR').length;
-  const regions = new Set(rcs.map(r => r.regionKey)).size;
+  p.appendChild(el('div', { html: srcSyncBadge() }));
+
+  // RC = всё, кроме shuttle
+  const all = srcFilterEntries(SRC.entries, { serviceIn: ['ipost', 'emu', 'bts'] });
+  const totalKg  = all.reduce((s, e) => s + (Number(e.kg) || 0), 0);
+  const totalRev = all.reduce((s, e) => s + (Number(e.revenue) || 0), 0);
+  const ipost = all.filter(e => e.service === 'ipost');
+  const emu   = all.filter(e => e.service === 'emu');
+  const bts   = all.filter(e => e.service === 'bts');
+  const regions = new Set(all.map(e => e.region)).size;
 
   const kg = el('div', { class: 'kpi-grid' });
   [
-    { l: 'Всего РЦ',    v: fmt(total),  icon: 'branches', kind: '' },
-    { l: 'Активные',    v: fmt(active), icon: 'star', kind: 'kpi-success' },
-    { l: 'IJARA',       v: fmt(ijara),  icon: 'finance', kind: 'kpi-purple' },
-    { l: 'HAMKOR',      v: fmt(hamkor), icon: 'team', kind: 'kpi-warning' },
-    { l: 'Регионов',    v: fmt(regions), icon: 'map', kind: '' },
+    { l: 'Записей RC',     v: fmt(all.length),         u: '',        icon: 'package',  kind: '' },
+    { l: 'Всего кг',       v: fmt(totalKg),            u: 'кг',      icon: 'fleet',    kind: 'kpi-purple' },
+    { l: 'Доход RC',       v: fmtMoney(totalRev/1e6),  u: 'млн UZS', icon: 'money',    kind: 'kpi-success' },
+    { l: 'IPOST KG',       v: fmt(ipost.length),       u: 'зап.',    icon: 'package',  kind: '' },
+    { l: 'EMU',            v: fmt(emu.length),         u: 'зап.',    icon: 'package',  kind: 'kpi-warning' },
+    { l: 'BTS',            v: fmt(bts.length),         u: 'зап.',    icon: 'package',  kind: 'kpi-purple' },
+    { l: 'Регионов',       v: fmt(regions),            u: '',        icon: 'map',      kind: '' },
   ].forEach(k => kg.appendChild(el('div', { class: 'kpi ' + k.kind, html: `
     <div class="kpi-head"><div class="kpi-label">${k.l}</div><div class="kpi-icon">${ICONS[k.icon] || ''}</div></div>
-    <div class="kpi-value">${k.v}</div>
+    <div class="kpi-value">${k.v}<span class="unit">${k.u}</span></div>
   `})));
   p.appendChild(kg);
 
-  const card = el('div', { class: 'card', style: 'margin-top:14px;' });
-  card.appendChild(el('div', { class: 'card-head', html: `
-    <div><div class="h">Реестр распределительных центров</div><div class="sub">${rcs.length} РЦ · IPOST / KG / EMU / BTS · IJARA / HAMKOR</div></div>
-    <div class="card-head-actions">
-      <button class="btn primary" onclick="openRCDialog()">+ Добавить РЦ</button>
-    </div>
+  // Разбивка по услугам
+  const card1 = el('div', { class: 'card', style: 'margin-top:14px;' });
+  card1.appendChild(el('div', { class: 'card-head', html: `
+    <div><div class="h">RC по услугам</div><div class="sub">IPOST KG · EMU · BTS</div></div>
   `}));
-
-  if (!rcs.length) {
-    srcEmpty(card, '🏭', 'РЦ пока нет', 'Добавьте первый РЦ — укажите код, регион, услуги и тип партнёрства', '+ Добавить РЦ', 'openRCDialog()');
+  const bySvc = srcAggregateBy(all, 'service');
+  if (!all.length) {
+    srcEmpty(card1, '🏭', 'Нет данных RC',
+      `На <a href="${TARIF_SRC_URL}" target="_blank" style="color:var(--accent);">${TARIF_SRC_URL}</a> переключись на режим <b>RC</b>, введи кг и нажми 🔄 синхронизировать.`,
+      '🔄 Синхронизировать сейчас', 'openSyncDialog()');
   } else {
     const tbl = el('table', { class: 'table' });
     tbl.innerHTML = `
-      <thead><tr>
-        <th>Код</th><th>Название</th><th>Регион</th><th>Услуги</th><th>Партнёр</th>
-        <th>Менеджер</th><th>Статус</th><th></th>
-      </tr></thead>
+      <thead><tr><th>Услуга</th><th style="text-align:right;">Записей</th><th style="text-align:right;">Кг</th><th style="text-align:right;">Доход (UZS)</th><th>Доля</th></tr></thead>
       <tbody>
-        ${rcs.map(r => `<tr>
-          <td style="font-family:JetBrains Mono; font-weight:700;">${r.code}</td>
-          <td><b>${r.name || '—'}</b><div style="font-size:10px; color:var(--text-muted);">${r.address || ''}</div></td>
-          <td>${srcRegionName(r.regionKey)}</td>
-          <td>${(r.services || []).map(s => `<span class="pill brand" style="margin-right:3px; font-size:10px;">${s}</span>`).join('') || '<span style="color:var(--text-muted);">—</span>'}</td>
-          <td><span class="pill ${r.partnerType === 'IJARA' ? 'purple' : 'warning'}">${r.partnerType}</span></td>
-          <td>${r.manager || '<span style="color:var(--text-muted);">—</span>'}<div style="font-size:10px; color:var(--text-muted); font-family:JetBrains Mono;">${r.managerPhone || ''}</div></td>
-          <td>${r.status === 'active' ? '<span class="pill success">Активен</span>' : '<span class="pill muted">Закрыт</span>'}</td>
-          <td style="text-align:right; white-space:nowrap;">
-            <button class="chip" onclick='openRCDialog(${JSON.stringify(r.id)})'>Изменить</button>
-            <button class="chip" style="color:var(--danger);" onclick='deleteRC(${JSON.stringify(r.id)})'>Удалить</button>
-          </td>
-        </tr>`).join('')}
+        ${bySvc.map(r => {
+          const pct = totalRev ? (r.revenue/totalRev*100) : 0;
+          const color = srcServiceColor(r.key);
+          return `<tr>
+            <td><span class="pill brand" style="background:${color}22; color:${color};">${srcServiceLabel(r.key)}</span></td>
+            <td style="text-align:right; font-family:JetBrains Mono;">${fmt(r.count)}</td>
+            <td style="text-align:right; font-family:JetBrains Mono;">${fmt(r.kg)}</td>
+            <td style="text-align:right; font-family:JetBrains Mono; font-weight:700; color:var(--accent);">${fmt(r.revenue)}</td>
+            <td><div style="display:flex; align-items:center; gap:8px;"><span style="font-family:JetBrains Mono; min-width:42px; font-weight:600;">${pct.toFixed(1)}%</span><div class="mini-bar" style="width:100px;"><span style="width:${pct}%; background:${color};"></span></div></div></td>
+          </tr>`;
+        }).join('')}
       </tbody>
     `;
-    card.appendChild(tbl);
+    card1.appendChild(tbl);
   }
-  p.appendChild(card);
+  p.appendChild(card1);
+
+  // Разбивка по регионам
+  if (all.length) {
+    const card2 = el('div', { class: 'card', style: 'margin-top:14px;' });
+    card2.appendChild(el('div', { class: 'card-head', html: `<div><div class="h">RC по регионам</div><div class="sub">Доход по 13 областям Узбекистана</div></div>` }));
+    const byRegion = srcAggregateBy(all, 'region');
+    const tbl = el('table', { class: 'table' });
+    tbl.innerHTML = `
+      <thead><tr><th>Регион</th><th style="text-align:right;">Записей</th><th style="text-align:right;">Кг</th><th style="text-align:right;">Доход (UZS)</th><th>Доля</th></tr></thead>
+      <tbody>
+        ${byRegion.map(r => {
+          const pct = totalRev ? (r.revenue/totalRev*100) : 0;
+          return `<tr>
+            <td><b>${r.key}</b></td>
+            <td style="text-align:right; font-family:JetBrains Mono;">${fmt(r.count)}</td>
+            <td style="text-align:right; font-family:JetBrains Mono;">${fmt(r.kg)}</td>
+            <td style="text-align:right; font-family:JetBrains Mono; font-weight:700; color:var(--accent);">${fmt(r.revenue)}</td>
+            <td><div style="display:flex; align-items:center; gap:8px;"><span style="font-family:JetBrains Mono; min-width:42px; font-weight:600;">${pct.toFixed(1)}%</span><div class="mini-bar" style="width:100px;"><span style="width:${pct}%"></span></div></div></td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    `;
+    card2.appendChild(tbl);
+    p.appendChild(card2);
+  }
 }
 
-function openRCDialog(id) {
-  const existing = id ? (SRC.rc || []).find(r => r.id === id) : null;
-  const r = existing || { code: '', name: '', regionKey: 'tashkent', address: '', services: ['IPOST'], partnerType: 'IJARA', manager: '', managerPhone: '', status: 'active', notes: '' };
-  const body = `
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
-      <div><label class="lbl">Код *</label><input id="rc-code" class="input" value="${r.code}" placeholder="RC-001"/></div>
-      <div><label class="lbl">Название</label><input id="rc-name" class="input" value="${r.name}" placeholder="РЦ Ташкент Северный"/></div>
-      <div><label class="lbl">Регион *</label><select id="rc-region" class="input">
-        ${SRC_REGIONS.map(x => `<option value="${x.key}" ${x.key === r.regionKey ? 'selected' : ''}>${x.name}</option>`).join('')}
-      </select></div>
-      <div><label class="lbl">Партнёр</label><select id="rc-partner" class="input">
-        <option value="IJARA" ${r.partnerType==='IJARA'?'selected':''}>IJARA (аренда)</option>
-        <option value="HAMKOR" ${r.partnerType==='HAMKOR'?'selected':''}>HAMKOR (партнёр)</option>
-      </select></div>
-      <div style="grid-column:1/-1;"><label class="lbl">Адрес</label><input id="rc-addr" class="input" value="${r.address}"/></div>
-      <div style="grid-column:1/-1;"><label class="lbl">Услуги (выберите)</label>
-        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:4px;">
-          ${SRC_SERVICES.map(s => `<label style="display:flex; align-items:center; gap:5px; padding:6px 12px; background:var(--panel-2); border-radius:6px; cursor:pointer; font-size:12px;">
-            <input type="checkbox" class="rc-svc" value="${s}" ${(r.services||[]).includes(s) ? 'checked' : ''}/>${s}
-          </label>`).join('')}
-        </div></div>
-      <div><label class="lbl">Менеджер</label><input id="rc-mgr" class="input" value="${r.manager}" placeholder="Ф.И.О."/></div>
-      <div><label class="lbl">Телефон</label><input id="rc-mphone" class="input" value="${r.managerPhone}" placeholder="+998 ..."/></div>
-      <div style="grid-column:1/-1;"><label class="lbl">Статус</label><select id="rc-status" class="input">
-        <option value="active" ${r.status==='active'?'selected':''}>Активен</option>
-        <option value="closed" ${r.status==='closed'?'selected':''}>Закрыт</option>
-      </select></div>
-    </div>
-  `;
-  srcShowModal(existing ? 'Изменить РЦ' : 'Новый РЦ', body, () => saveRC(id), existing ? 'Сохранить' : 'Создать');
-}
-
-async function saveRC(id) {
-  const services = Array.from(document.querySelectorAll('.rc-svc:checked')).map(x => x.value);
-  const body = {
-    id,
-    code:         $('#rc-code').value.trim(),
-    name:         $('#rc-name').value.trim(),
-    regionKey:    $('#rc-region').value,
-    address:      $('#rc-addr').value.trim(),
-    services,
-    partnerType:  $('#rc-partner').value,
-    manager:      $('#rc-mgr').value.trim(),
-    managerPhone: $('#rc-mphone').value.trim(),
-    status:       $('#rc-status').value,
-  };
-  if (!body.code) { toast('Укажите код РЦ', 'danger'); return; }
-  try {
-    await srcFetch('rc', { method: id ? 'PUT' : 'POST', body });
-    toast('✓ ' + (id ? 'РЦ обновлён' : 'РЦ добавлен'), 'success');
-    closeModal();
-    renderPage(STATE.page);
-  } catch (e) { toast('Ошибка: ' + e.message, 'danger'); }
-}
-
-async function deleteRC(id) {
-  const r = (SRC.rc || []).find(x => x.id === id);
-  if (!r) return;
-  if (!confirm('Удалить РЦ "' + r.code + '"?')) return;
-  try {
-    await srcFetch('rc', { method: 'DELETE', body: { id } });
-    toast('✓ РЦ удалён', 'success');
-    renderPage(STATE.page);
-  } catch (e) { toast('Ошибка: ' + e.message, 'danger'); }
-}
-
-/* ==================== PAGE: УПРАВЛЕНИЕ ТАРИФАМИ ==================== */
+/* ==================== PAGE: УПРАВЛЕНИЕ ТАРИФАМИ (Read-only из ipost-tarif-dashboard) ==================== */
 async function renderTariffs() {
   const c = $('#content');
   c.innerHTML = '';
   const p = el('div', { class: 'page active' });
   c.appendChild(p);
 
-  p.appendChild(el('div', { class: 'card', html: '<div style="padding:30px; text-align:center; color:var(--text-muted);">Загрузка тарифов…</div>' }));
-
-  let tariffs = {};
-  try { tariffs = await srcLoadTariffs(); }
-  catch (e) {
-    p.innerHTML = '';
+  try { await srcRefresh(); } catch (e) {
     p.appendChild(el('div', { class: 'card', html: `<div style="padding:30px; text-align:center; color:var(--danger);">Ошибка: ${e.message}</div>` }));
     return;
   }
-  p.innerHTML = '';
 
-  // Active partner state
-  if (!STATE.tariffPartner) STATE.tariffPartner = 'IJARA';
-  const partner = STATE.tariffPartner;
+  p.appendChild(el('div', { html: srcSyncBadge() }));
 
-  // Partner tabs
-  const tabs = el('div', { class: 'home-tabs', style: 'margin-bottom:14px;' });
-  for (const pp of SRC_PARTNERS) {
-    tabs.appendChild(el('button', {
-      class: 'home-tab' + (partner === pp ? ' active' : ''),
-      onclick: () => { STATE.tariffPartner = pp; renderTariffs(); },
-      html: `<span>${pp === 'IJARA' ? '🏠 IJARA (аренда)' : '🤝 HAMKOR (партнёр)'}</span>`,
-    }));
-  }
-  p.appendChild(tabs);
+  const tariffs = SRC.tariffs || [];
 
   const card = el('div', { class: 'card' });
   card.appendChild(el('div', { class: 'card-head', html: `
-    <div><div class="h">Тарифы · ${partner}</div><div class="sub">UZS за килограмм · по вилоятам × услугам</div></div>
+    <div>
+      <div class="h">Тарифы (UZS/кг)</div>
+      <div class="sub">Read-only зеркало ipost-tarif-dashboard · 13 регионов × 4 услуги · IJARA / HAMKOR</div>
+    </div>
     <div class="card-head-actions">
-      <button class="btn primary" onclick="saveTariffMatrix('${partner}')">💾 Сохранить</button>
+      <button class="btn" onclick="window.open('${TARIF_SRC_URL}', '_blank')">✏ Изменить на ipost-tarif-dashboard</button>
     </div>
   `}));
 
-  // Matrix table
-  const tbl = el('table', { class: 'table' });
-  tbl.innerHTML = `
-    <thead><tr>
-      <th style="position:sticky; left:0; background:var(--panel); z-index:1;">Регион</th>
-      ${SRC_SERVICES.map(s => `<th style="text-align:center;">${s}</th>`).join('')}
-    </tr></thead>
-    <tbody>
-      ${SRC_REGIONS.map(r => `<tr>
-        <td style="font-weight:600; position:sticky; left:0; background:var(--panel);">${r.name}</td>
-        ${SRC_SERVICES.map(s => {
-          const v = (tariffs[partner] && tariffs[partner][r.key] && tariffs[partner][r.key][s]) || '';
-          return `<td><input class="input tar-cell" data-region="${r.key}" data-service="${s}" type="number" min="0" value="${v}" style="text-align:right; font-family:JetBrains Mono; padding:6px 8px; font-size:12px;" placeholder="0"/></td>`;
-        }).join('')}
-      </tr>`).join('')}
-    </tbody>
-  `;
-  card.appendChild(tbl);
+  if (!tariffs.length) {
+    srcEmpty(card, '💰', 'Тарифы не загружены', 'Нажми «🔄 Синхронизировать» чтобы загрузить тарифы.', '🔄 Синхронизировать', 'openSyncDialog()');
+  } else {
+    const tbl = el('table', { class: 'table' });
+    tbl.innerHTML = `
+      <thead><tr>
+        <th>Регион</th><th>Партнёр</th>
+        ${SRC_SERVICES.map(s => `<th style="text-align:right;"><span style="color:${s.color};">${s.label}</span></th>`).join('')}
+      </tr></thead>
+      <tbody>
+        ${tariffs.map(t => `<tr>
+          <td style="font-weight:600;">${t.region}</td>
+          <td>${tarifPartnerPill(t.partner)}</td>
+          ${SRC_SERVICES.map(s => {
+            const v = Number(t[s.key]) || 0;
+            return `<td style="text-align:right; font-family:JetBrains Mono; ${v ? 'font-weight:700; color:'+s.color+';' : 'color:var(--text-muted);'}">${v ? fmt(v) : '–'}</td>`;
+          }).join('')}
+        </tr>`).join('')}
+      </tbody>
+    `;
+    card.appendChild(tbl);
+  }
   p.appendChild(card);
 
+  // Подсказка
   p.appendChild(el('div', { class: 'card', style: 'margin-top:14px; padding:14px;', html: `
-    <div style="display:flex; align-items:center; gap:12px;">
-      <span style="font-size:24px;">💡</span>
-      <div style="font-size:12px; color:var(--text-muted);">
-        Тариф используется как множитель в учёте: <b>Доход = Кг × Тариф</b>.<br>
-        Можно задать <b>0</b> или оставить пустым для услуги, которой нет в этом регионе. Изменения применяются ко всем будущим записям.
+    <div style="display:flex; align-items:flex-start; gap:12px; font-size:12px; color:var(--text-muted);">
+      <span style="font-size:22px;">ℹ️</span>
+      <div>
+        Тарифы — это <b>read-only зеркало</b> данных из тарифного дашборда. Чтобы изменить тариф —
+        откройте <a href="${TARIF_SRC_URL}" target="_blank" style="color:var(--accent);">${TARIF_SRC_URL}</a>,
+        отредактируйте, затем нажмите <b>🔄 Синхронизировать</b> здесь.
       </div>
     </div>
   `}));
 }
 
-async function saveTariffMatrix(partner) {
-  const cells = document.querySelectorAll('.tar-cell');
-  const tariffs = JSON.parse(JSON.stringify(SRC.tariffs || {}));
-  if (!tariffs[partner]) tariffs[partner] = {};
-  for (const c of cells) {
-    const region = c.dataset.region;
-    const service = c.dataset.service;
-    const value = Number(c.value) || 0;
-    if (!tariffs[partner][region]) tariffs[partner][region] = {};
-    tariffs[partner][region][service] = value;
-  }
-  try {
-    await srcFetch('tariff', { method: 'POST', body: { tariffs } });
-    SRC.tariffs = tariffs;
-    toast('✓ Тарифы сохранены', 'success');
-  } catch (e) { toast('Ошибка: ' + e.message, 'danger'); }
-}
-
-/* ==================== PAGE: НОВАЯ ЗАПИСЬ (УЧЁТ КГ) ==================== */
+/* ==================== PAGE: НОВАЯ ЗАПИСЬ (Push в ipost-tarif-dashboard через консоль) ==================== */
 async function renderTariffEntry() {
   const c = $('#content');
   c.innerHTML = '';
   const p = el('div', { class: 'page active' });
   c.appendChild(p);
 
-  p.appendChild(el('div', { class: 'card', html: '<div style="padding:30px; text-align:center; color:var(--text-muted);">Загрузка тарифов…</div>' }));
-
-  let tariffs = {};
-  try { tariffs = await srcLoadTariffs(); }
-  catch (e) {
-    p.innerHTML = '';
+  try { await srcRefresh(); } catch (e) {
     p.appendChild(el('div', { class: 'card', html: `<div style="padding:30px; text-align:center; color:var(--danger);">Ошибка: ${e.message}</div>` }));
     return;
   }
-  p.innerHTML = '';
 
-  if (!STATE.entryPartner) STATE.entryPartner = 'IJARA';
-  if (!STATE.entryDate)    STATE.entryDate    = new Date().toISOString().slice(0, 10);
+  p.appendChild(el('div', { html: srcSyncBadge() }));
 
-  // Top form: date + partner
-  const top = el('div', { class: 'card', style: 'padding:14px; margin-bottom:14px;' });
-  top.innerHTML = `
-    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px;">
-      <div>
-        <label class="lbl">Дата</label>
-        <input id="entry-date" class="input" type="date" value="${STATE.entryDate}"/>
+  // Объяснение
+  p.appendChild(el('div', { class: 'card', style: 'margin-bottom:14px; padding:18px;', html: `
+    <div style="display:flex; align-items:flex-start; gap:14px;">
+      <span style="font-size:28px;">📝</span>
+      <div style="flex:1;">
+        <div style="font-size:14px; font-weight:700; margin-bottom:6px;">Ввод новых записей — на ipost-tarif-dashboard</div>
+        <div style="font-size:12.5px; color:var(--text-muted); line-height:1.6;">
+          Источник правды для записей — <a href="${TARIF_SRC_URL}" target="_blank" style="color:var(--accent);">${TARIF_SRC_URL}</a>.
+          Открой его, добавь записи в режиме <b>RC</b> или <b>SHUTTLE</b>, затем вернись сюда и нажми
+          <b>🔄 Синхронизировать</b> — данные подтянутся в директорку автоматически.
+        </div>
+        <div style="display:flex; gap:8px; margin-top:14px; flex-wrap:wrap;">
+          <button class="btn btn-primary" onclick="window.open('${TARIF_SRC_URL}/#entry', '_blank')">➕ Открыть форму ввода →</button>
+          <button class="btn" onclick="openSyncDialog()">🔄 Синхронизировать сейчас</button>
+        </div>
       </div>
-      <div>
-        <label class="lbl">Тип партнёра</label>
-        <select id="entry-partner" class="input">
-          <option value="IJARA"  ${STATE.entryPartner==='IJARA'?'selected':''}>🏠 IJARA (аренда)</option>
-          <option value="HAMKOR" ${STATE.entryPartner==='HAMKOR'?'selected':''}>🤝 HAMKOR (партнёр)</option>
-        </select>
-      </div>
-      <div style="display:flex; align-items:flex-end;">
-        <div style="font-size:11px; color:var(--text-muted);">Введите килограммы груза по матрице вилоят × услуга. Доход считается автоматически по тарифам.</div>
-      </div>
-    </div>
-  `;
-  p.appendChild(top);
-
-  // Re-render matrix on partner/date change
-  setTimeout(() => {
-    $('#entry-partner').onchange = e => { STATE.entryPartner = e.target.value; renderTariffEntry(); };
-    $('#entry-date').onchange    = e => { STATE.entryDate    = e.target.value; };
-  }, 0);
-
-  const partner = STATE.entryPartner;
-  const tarPart = tariffs[partner] || {};
-
-  // Matrix
-  const card = el('div', { class: 'card' });
-  card.appendChild(el('div', { class: 'card-head', html: `
-    <div><div class="h">Матрица учёта · ${partner}</div><div class="sub">Кг по регионам × услугам · ${SRC_SERVICES.join(' · ')}</div></div>
-    <div class="card-head-actions">
-      <button class="btn" onclick="clearEntryMatrix()">↺ Очистить</button>
-      <button class="btn primary" onclick="submitEntryMatrix()">💾 Сохранить все записи</button>
     </div>
   `}));
 
+  if (!SRC.tariffs?.length) return;
+
+  // Превью: текущая матрица тарифов
+  const card = el('div', { class: 'card' });
+  card.appendChild(el('div', { class: 'card-head', html: `
+    <div><div class="h">Текущие тарифы для ввода</div><div class="sub">Read-only · показывает, по каким ставкам ipost-tarif-dashboard посчитает доход</div></div>
+  `}));
   const tbl = el('table', { class: 'table' });
   tbl.innerHTML = `
     <thead><tr>
-      <th style="position:sticky; left:0; background:var(--panel);">Регион</th>
-      ${SRC_SERVICES.map(s => `<th style="text-align:center;">${s}<br><span style="font-size:10px; color:var(--text-muted); font-weight:normal;">кг → UZS</span></th>`).join('')}
-      <th style="text-align:right;">Итого (UZS)</th>
+      <th>Регион</th><th>Партнёр</th>
+      ${SRC_SERVICES.map(s => `<th style="text-align:right;"><span style="color:${s.color};">${s.label}</span></th>`).join('')}
     </tr></thead>
-    <tbody id="entry-tbody">
-      ${SRC_REGIONS.map(r => `<tr data-region="${r.key}">
-        <td style="font-weight:600; position:sticky; left:0; background:var(--panel);">${r.name}</td>
+    <tbody>
+      ${SRC.tariffs.map(t => `<tr>
+        <td style="font-weight:600;">${t.region}</td>
+        <td>${tarifPartnerPill(t.partner)}</td>
         ${SRC_SERVICES.map(s => {
-          const tariff = (tarPart[r.key] && tarPart[r.key][s]) || 0;
-          return `<td>
-            <input class="input entry-kg" data-region="${r.key}" data-service="${s}" data-tariff="${tariff}"
-              type="number" min="0" step="0.1" value=""
-              oninput="recalcEntryRow(this)"
-              style="text-align:right; font-family:JetBrains Mono; padding:6px 8px; font-size:12px;"
-              placeholder="${tariff ? '0' : '–'}"
-              ${tariff ? '' : 'disabled title="Тариф не задан"'}/>
-            <div style="font-size:9.5px; color:var(--text-muted); text-align:right; margin-top:2px;">${tariff ? fmt(tariff) + ' UZS/кг' : 'нет тарифа'}</div>
-          </td>`;
+          const v = Number(t[s.key]) || 0;
+          return `<td style="text-align:right; font-family:JetBrains Mono; ${v ? 'font-weight:600;' : 'color:var(--text-muted);'}">${v ? fmt(v) + ' UZS/кг' : '–'}</td>`;
         }).join('')}
-        <td style="text-align:right; font-family:JetBrains Mono; font-weight:700; color:var(--accent);" class="row-total">0</td>
       </tr>`).join('')}
     </tbody>
-    <tfoot><tr style="background:var(--panel-2); font-weight:700;">
-      <td style="position:sticky; left:0; background:var(--panel-2);">Итого:</td>
-      ${SRC_SERVICES.map(s => `<td style="text-align:center; font-family:JetBrains Mono;" class="col-total" data-service="${s}">0 кг</td>`).join('')}
-      <td style="text-align:right; font-family:JetBrains Mono; font-size:14px; color:var(--accent);" id="grand-total">0 UZS</td>
-    </tr></tfoot>
   `;
   card.appendChild(tbl);
   p.appendChild(card);
-}
-
-function recalcEntryRow(input) {
-  const row = input.closest('tr');
-  let rowTotal = 0;
-  row.querySelectorAll('.entry-kg').forEach(c => {
-    const kg = Number(c.value) || 0;
-    const t  = Number(c.dataset.tariff) || 0;
-    rowTotal += kg * t;
-  });
-  row.querySelector('.row-total').textContent = fmt(rowTotal);
-
-  // Recalc grand total + col totals
-  let grand = 0;
-  document.querySelectorAll('#entry-tbody tr').forEach(r => {
-    r.querySelectorAll('.entry-kg').forEach(c => {
-      const kg = Number(c.value) || 0;
-      const t  = Number(c.dataset.tariff) || 0;
-      grand += kg * t;
-    });
-  });
-  document.getElementById('grand-total').textContent = fmt(grand) + ' UZS';
-
-  document.querySelectorAll('.col-total').forEach(td => {
-    const svc = td.dataset.service;
-    let kg = 0;
-    document.querySelectorAll(`.entry-kg[data-service="${svc}"]`).forEach(c => kg += Number(c.value) || 0);
-    td.textContent = fmt(kg) + ' кг';
-  });
-}
-
-function clearEntryMatrix() {
-  document.querySelectorAll('.entry-kg').forEach(c => c.value = '');
-  document.querySelectorAll('.row-total').forEach(t => t.textContent = '0');
-  document.querySelectorAll('.col-total').forEach(t => t.textContent = '0 кг');
-  document.getElementById('grand-total').textContent = '0 UZS';
-}
-
-async function submitEntryMatrix() {
-  const date    = $('#entry-date').value;
-  const partner = $('#entry-partner').value;
-  if (!date) { toast('Выберите дату', 'danger'); return; }
-
-  const batch = [];
-  document.querySelectorAll('.entry-kg').forEach(c => {
-    const kg = Number(c.value) || 0;
-    if (kg <= 0) return;
-    batch.push({
-      date, partner,
-      region:  c.dataset.region,
-      service: c.dataset.service,
-      kg,
-      tariff:  Number(c.dataset.tariff) || 0,
-    });
-  });
-  if (!batch.length) { toast('Нет данных для сохранения', 'warning'); return; }
-
-  if (!confirm('Сохранить ' + batch.length + ' записей за ' + date + ' (' + partner + ')?')) return;
-
-  try {
-    const j = await srcFetch('record', { method: 'POST', body: { batch } });
-    toast('✓ Сохранено: ' + j.added + ' записей', 'success');
-    clearEntryMatrix();
-  } catch (e) { toast('Ошибка: ' + e.message, 'danger'); }
 }
 
 /* ==================== PAGE: ИСТОРИЯ ЗАПИСЕЙ ==================== */
@@ -4927,100 +4865,106 @@ async function renderTariffHistory() {
   const p = el('div', { class: 'page active' });
   c.appendChild(p);
 
+  try { await srcRefresh(); } catch (e) {
+    p.appendChild(el('div', { class: 'card', html: `<div style="padding:30px; text-align:center; color:var(--danger);">Ошибка: ${e.message}</div>` }));
+    return;
+  }
+
+  p.appendChild(el('div', { html: srcSyncBadge() }));
+
   if (!STATE.histFilters) {
-    const today = new Date().toISOString().slice(0, 10);
-    const firstOfMonth = today.slice(0, 8) + '01';
-    STATE.histFilters = { from: firstOfMonth, to: today, region: '', service: '', partner: '' };
+    STATE.histFilters = { from: '', to: '', region: '', service: '', partner: '' };
   }
   const f = STATE.histFilters;
 
-  // Filter bar
+  // Фильтр-бар
   const filt = el('div', { class: 'card', style: 'padding:12px; margin-bottom:14px;' });
   filt.innerHTML = `
     <div style="display:grid; grid-template-columns:repeat(6, 1fr); gap:10px; align-items:end;">
-      <div><label class="lbl" style="font-size:10px;">С даты</label><input id="hf-from" class="input" type="date" value="${f.from}"/></div>
-      <div><label class="lbl" style="font-size:10px;">По дату</label><input id="hf-to"   class="input" type="date" value="${f.to}"/></div>
-      <div><label class="lbl" style="font-size:10px;">Регион</label><select id="hf-region" class="input">
+      <div><label class="lbl">С даты</label><input id="hf-from" class="input" type="date" value="${f.from || ''}"/></div>
+      <div><label class="lbl">По дату</label><input id="hf-to" class="input" type="date" value="${f.to || ''}"/></div>
+      <div><label class="lbl">Регион</label><select id="hf-region" class="input">
         <option value="">— все —</option>
-        ${SRC_REGIONS.map(r => `<option value="${r.key}" ${f.region===r.key?'selected':''}>${r.name}</option>`).join('')}
+        ${SRC_REGIONS.map(r => `<option value="${r}" ${f.region===r?'selected':''}>${r}</option>`).join('')}
       </select></div>
-      <div><label class="lbl" style="font-size:10px;">Услуга</label><select id="hf-service" class="input">
+      <div><label class="lbl">Услуга</label><select id="hf-service" class="input">
         <option value="">— все —</option>
-        ${SRC_SERVICES.map(s => `<option value="${s}" ${f.service===s?'selected':''}>${s}</option>`).join('')}
+        ${SRC_SERVICES.map(s => `<option value="${s.key}" ${f.service===s.key?'selected':''}>${s.label}</option>`).join('')}
       </select></div>
-      <div><label class="lbl" style="font-size:10px;">Партнёр</label><select id="hf-partner" class="input">
+      <div><label class="lbl">Партнёр</label><select id="hf-partner" class="input">
         <option value="">— все —</option>
         ${SRC_PARTNERS.map(pp => `<option value="${pp}" ${f.partner===pp?'selected':''}>${pp}</option>`).join('')}
       </select></div>
       <div style="display:flex; gap:6px;">
-        <button class="btn primary" onclick="applyHistFilters()" style="flex:1;">Применить</button>
+        <button class="btn btn-primary" onclick="applyHistFilters()" style="flex:1;">Применить</button>
         <button class="btn" onclick="exportHistCSV()" title="Экспорт CSV">⬇ CSV</button>
       </div>
     </div>
   `;
   p.appendChild(filt);
 
-  // Load
-  const card = el('div', { class: 'card' });
-  card.appendChild(el('div', { class: 'card-head', html: '<div><div class="h">Учётные записи</div><div class="sub">Загрузка…</div></div>' }));
-  p.appendChild(card);
+  // Применить фильтры
+  const filtered = srcFilterEntries(SRC.entries, f);
+  const totalKg  = filtered.reduce((s, e) => s + (Number(e.kg)      || 0), 0);
+  const totalRev = filtered.reduce((s, e) => s + (Number(e.revenue) || 0), 0);
 
-  const qs = Object.entries(f).filter(([k,v]) => v).map(([k,v]) => `${k}=${encodeURIComponent(v)}`).join('&');
-  let data;
-  try {
-    data = await srcLoadRecords(qs);
-  } catch (e) {
-    card.innerHTML = `<div style="padding:30px; text-align:center; color:var(--danger);">Ошибка: ${e.message}</div>`;
-    return;
-  }
-  const records = data.records || [];
-  const totals  = data.totals || { kg: 0, revenue: 0, count: 0 };
-
-  // KPIs
+  // KPI
   const kg = el('div', { class: 'kpi-grid', style: 'margin-bottom:14px;' });
   [
-    { l: 'Записей',      v: fmt(totals.count),     u: '',    icon: 'package',  kind: '' },
-    { l: 'Общий вес',    v: fmt(totals.kg),        u: 'кг',  icon: 'fleet',    kind: 'kpi-purple' },
-    { l: 'Общий доход',  v: fmtMoney(totals.revenue/1e6), u: 'млн UZS', icon: 'money', kind: 'kpi-success' },
-    { l: 'Период',       v: f.from.slice(5) + ' — ' + f.to.slice(5), u: '', icon: 'clock', kind: '' },
+    { l: 'Записей',      v: fmt(filtered.length),     u: '',          icon: 'package',  kind: '' },
+    { l: 'Всего кг',     v: fmt(totalKg),             u: 'кг',        icon: 'fleet',    kind: 'kpi-purple' },
+    { l: 'Доход',        v: fmtMoney(totalRev/1e6),   u: 'млн UZS',   icon: 'money',    kind: 'kpi-success' },
+    { l: 'Период',       v: (f.from || '–') + ' → ' + (f.to || '–'), u: '',  icon: 'clock', kind: '' },
   ].forEach(k => kg.appendChild(el('div', { class: 'kpi ' + k.kind, html: `
     <div class="kpi-head"><div class="kpi-label">${k.l}</div><div class="kpi-icon">${ICONS[k.icon] || ''}</div></div>
     <div class="kpi-value">${k.v}<span class="unit">${k.u}</span></div>
   `})));
-  p.insertBefore(kg, card);
+  p.appendChild(kg);
 
-  // Table
-  card.innerHTML = '';
+  // Таблица
+  const card = el('div', { class: 'card' });
   card.appendChild(el('div', { class: 'card-head', html: `
-    <div><div class="h">Учётные записи</div><div class="sub">${records.length} записей · ${fmt(totals.kg)} кг · ${fmtMoney(totals.revenue/1e6)} млн UZS</div></div>
+    <div><div class="h">Учётные записи</div><div class="sub">${filtered.length} из ${(SRC.entries||[]).length} · сортировка: дата ↓ createdAt ↓</div></div>
   `}));
 
-  if (!records.length) {
-    srcEmpty(card, '📊', 'Записей нет', 'За выбранный период нет записей. Создайте новую через "Новая запись".', 'Создать запись', `goTo('tariff-entry')`);
+  if (!filtered.length) {
+    srcEmpty(card, '📊', 'Записей нет',
+      'По выбранным фильтрам ничего не найдено. Попробуй расширить фильтры или нажми "🔄 Синхронизировать".',
+      '🔄 Синхронизировать', 'openSyncDialog()');
   } else {
+    const sorted = [...filtered].sort((a, b) => {
+      if (a.date !== b.date) return (b.date || '').localeCompare(a.date || '');
+      return (b.createdAt || 0) - (a.createdAt || 0);
+    }).slice(0, 1000); // safety cap
+
     const tbl = el('table', { class: 'table' });
     tbl.innerHTML = `
       <thead><tr>
         <th>Дата</th><th>Регион</th><th>Услуга</th><th>Партнёр</th>
         <th style="text-align:right;">Кг</th><th style="text-align:right;">Тариф</th>
-        <th style="text-align:right;">Доход (UZS)</th><th>Кто ввёл</th><th></th>
+        <th style="text-align:right;">Доход (UZS)</th><th>Автор</th><th>Заметка</th>
       </tr></thead>
       <tbody>
-        ${records.map(r => `<tr>
-          <td style="font-family:JetBrains Mono;">${r.date}</td>
-          <td>${srcRegionName(r.region)}</td>
-          <td><span class="pill brand">${r.service}</span></td>
-          <td><span class="pill ${r.partner === 'IJARA' ? 'purple' : 'warning'}">${r.partner}</span></td>
-          <td style="text-align:right; font-family:JetBrains Mono; font-weight:600;">${fmt(r.kg)}</td>
-          <td style="text-align:right; font-family:JetBrains Mono;">${fmt(r.tariff)}</td>
-          <td style="text-align:right; font-family:JetBrains Mono; font-weight:700; color:var(--accent);">${fmt(r.revenue)}</td>
-          <td style="font-size:11px;">${r.createdByName || r.createdBy || '—'}</td>
-          <td style="text-align:right;"><button class="chip" style="color:var(--danger);" onclick='deleteTariffRecord(${JSON.stringify(r.id)})'>×</button></td>
-        </tr>`).join('')}
+        ${sorted.map(e => {
+          const color = srcServiceColor(e.service);
+          return `<tr>
+            <td style="font-family:JetBrains Mono;">${fmtPlainDate(e.date)}</td>
+            <td>${e.region}</td>
+            <td><span class="pill brand" style="background:${color}22; color:${color};">${srcServiceLabel(e.service)}</span></td>
+            <td>${tarifPartnerPill(e.partner)}</td>
+            <td style="text-align:right; font-family:JetBrains Mono; font-weight:600;">${fmt(e.kg)}</td>
+            <td style="text-align:right; font-family:JetBrains Mono;">${fmt(e.rate)}</td>
+            <td style="text-align:right; font-family:JetBrains Mono; font-weight:700; color:var(--accent);">${fmt(e.revenue)}</td>
+            <td style="font-size:11px;">${e.author || '—'}</td>
+            <td style="font-size:11px; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${(e.note||'').replace(/"/g,'&quot;')}">${e.note || ''}</td>
+          </tr>`;
+        }).join('')}
+        ${filtered.length > 1000 ? `<tr><td colspan="9" style="text-align:center; padding:14px; color:var(--text-muted); font-style:italic;">Показано первые 1000 записей из ${fmt(filtered.length)}. Используй фильтры или экспорт в CSV.</td></tr>` : ''}
       </tbody>
     `;
     card.appendChild(tbl);
   }
+  p.appendChild(card);
 }
 
 function applyHistFilters() {
@@ -5035,42 +4979,36 @@ function applyHistFilters() {
 }
 
 function exportHistCSV() {
-  const rows = SRC.records || [];
+  const f = STATE.histFilters || {};
+  const rows = srcFilterEntries(SRC.entries, f);
   if (!rows.length) { toast('Нет данных для экспорта', 'warning'); return; }
-  const header = ['Дата','Регион','Услуга','Партнёр','Кг','Тариф (UZS/кг)','Доход (UZS)','Кто ввёл','Заметка'];
+  const header = ['ID','Дата','Регион','Партнёр','Услуга','Кг','Тариф (UZS/кг)','Доход (UZS)','Автор','Заметка','Создано'];
   const lines = [header.join(';')];
-  for (const r of rows) {
+  for (const e of rows) {
     lines.push([
-      r.date,
-      srcRegionName(r.region),
-      r.service,
-      r.partner,
-      r.kg,
-      r.tariff,
-      r.revenue,
-      (r.createdByName || r.createdBy || '').replace(/;/g, ','),
-      (r.note || '').replace(/;/g, ',').replace(/\n/g, ' '),
+      e.id,
+      e.date,
+      e.region,
+      e.partner,
+      srcServiceLabel(e.service),
+      e.kg,
+      e.rate,
+      e.revenue,
+      (e.author || '').replace(/;/g, ','),
+      (e.note   || '').replace(/;/g, ',').replace(/\n/g, ' '),
+      new Date(e.createdAt || 0).toISOString(),
     ].join(';'));
   }
   const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'tariff-records-' + new Date().toISOString().slice(0,10) + '.csv';
+  a.download = 'ipost-tarif-entries-' + new Date().toISOString().slice(0,10) + '.csv';
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-  toast('✓ CSV выгружен', 'success');
-}
-
-async function deleteTariffRecord(id) {
-  if (!confirm('Удалить запись?\nЕсли запись старше 5 минут или принадлежит другому пользователю — только директор может удалить.')) return;
-  try {
-    await srcFetch('record', { method: 'DELETE', body: { id } });
-    toast('✓ Запись удалена', 'success');
-    renderPage(STATE.page);
-  } catch (e) { toast('Ошибка: ' + e.message, 'danger'); }
+  toast('✓ CSV выгружен (' + rows.length + ' записей)', 'success');
 }
 
 /* === OLD LOGISTICS/ORDERS/FLEET stubs (legacy) — replaced by Shuttles/RC === */
