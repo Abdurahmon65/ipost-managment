@@ -489,12 +489,30 @@
   .mini-bar.danger > span { background: linear-gradient(90deg, var(--danger), #FF99B0); }
 
   /* MAP */
-  #director-map, #full-map {
+  #director-map, #full-map, #points-map {
+    position: relative;
     width: 100%; height: 400px; border-radius: 12px; overflow: hidden;
     background: var(--panel-2);
+    z-index: 1; /* keep map below fixed sidebar overlay */
   }
   #full-map { height: calc(100vh - 220px); min-height: 500px; }
-  .leaflet-container { background: var(--bg-2); font-family: 'Inter', sans-serif; }
+  #points-map { height: 480px; }
+  .leaflet-container {
+    background: var(--bg-2); font-family: 'Inter', sans-serif;
+  }
+  /* Brighten the very-dark CartoCDN dark_all tiles so labels/streets are legible */
+  :root:not([data-theme="light"]) .leaflet-tile-pane {
+    filter: brightness(1.35) contrast(0.95) saturate(1.1);
+  }
+  /* Make sure leaflet controls are readable on dark theme */
+  :root:not([data-theme="light"]) .leaflet-bar a,
+  :root:not([data-theme="light"]) .leaflet-bar a:hover {
+    background: var(--panel-2); color: var(--text); border-color: var(--border);
+  }
+  :root:not([data-theme="light"]) .leaflet-popup-content-wrapper,
+  :root:not([data-theme="light"]) .leaflet-popup-tip {
+    background: var(--panel); color: var(--text);
+  }
 
   /* LIST ITEM */
   .list-item {
@@ -2562,14 +2580,53 @@ function renderNav() {
 }
 
 function toggleSidebar(force) {
-  const sb = document.querySelector('.sidebar');
+  const app  = document.getElementById('app');
+  const sb   = document.querySelector('.sidebar');
   const back = document.getElementById('drawer-back');
-  const btn = document.getElementById('burger');
+  const btn  = document.getElementById('burger');
+  const wide = window.innerWidth >= 1280;
   const shouldOpen = force !== undefined ? force : !sb.classList.contains('open');
   sb.classList.toggle('open', shouldOpen);
-  back.classList.toggle('show', shouldOpen);
+  // On wide screens — pin (content reflows next to sidebar instead of overlay)
+  if (wide) {
+    app.classList.toggle('pinned', shouldOpen);
+    back.classList.remove('show');
+  } else {
+    app.classList.remove('pinned');
+    back.classList.toggle('show', shouldOpen);
+  }
   btn.classList.toggle('active', shouldOpen);
+  // Notify Leaflet maps to recalculate (avoids stale tiles when content shifts)
+  setTimeout(() => {
+    if (typeof mapInst !== 'undefined' && mapInst && mapInst.invalidateSize) {
+      try { mapInst.invalidateSize(); } catch {}
+    }
+  }, 280);
 }
+
+// Auto-pin on wide screens at boot and on resize
+function setupSidebarMode() {
+  const app  = document.getElementById('app');
+  const sb   = document.querySelector('.sidebar');
+  const back = document.getElementById('drawer-back');
+  const btn  = document.getElementById('burger');
+  if (!app || !sb) return;
+  const wide = window.innerWidth >= 1280;
+  if (wide) {
+    app.classList.add('pinned');
+    sb.classList.add('open');
+    back?.classList.remove('show');
+    btn?.classList.add('active');
+  } else {
+    app.classList.remove('pinned');
+  }
+}
+window.addEventListener('resize', () => {
+  setupSidebarMode();
+  if (typeof mapInst !== 'undefined' && mapInst && mapInst.invalidateSize) {
+    setTimeout(() => { try { mapInst.invalidateSize(); } catch {} }, 220);
+  }
+});
 
 function goTo(page) {
   // RBAC: block direct navigation to forbidden pages
@@ -6452,19 +6509,28 @@ function getAllCouriers() {
 // Get ALL orders from live dispatch — NO MOCK FALLBACK
 function getAllOrders() {
   if (!STATE.live || !STATE.live.dispatch || !Array.isArray(STATE.live.dispatch.orders)) return [];
-  const drivers = STATE.live.dispatch.drivers || [];
-  const routes  = STATE.live.dispatch.routes  || [];
+  const drivers   = STATE.live.dispatch.drivers   || [];
+  const routes    = STATE.live.dispatch.routes    || [];
+  const customers = STATE.live.dispatch.customers || [];
   return STATE.live.dispatch.orders.map(o => {
-    const route = routes.find(r => r.id === o.routeId);
+    const route  = routes.find(r => r.id === o.routeId);
     const driver = route ? drivers.find(d => d.id === route.driverId) : null;
+    // Resolve client name from various possible sources
+    const customerObj = o.customerId ? customers.find(c => c.id === o.customerId) : null;
+    const clientName = o.client || o.clientName || o.customer ||
+                       (customerObj ? (customerObj.name || customerObj.fullName) : null) ||
+                       o.recipient || o.recipientName || o.addressee || '';
     return {
       ...o,
       driverName: driver ? driver.name : '—',
-      driverId: driver ? driver.id : null,
-      routeName: route ? route.name : '—',
-      // Normalize weight field from various possible names
-      weightKg: Number(o.weightKg || o.weight || o.totalWeight || 0),
-      sumUZS:   Number(o.sumUZS || o.totalSum || o.codAmount || 0),
+      driverId:   driver ? driver.id   : null,
+      routeName:  route  ? route.name  : '—',
+      client:     clientName,
+      // Normalize weight/sum from various possible names
+      weightKg:   Number(o.weightKg || o.weight || o.totalWeight || 0),
+      sumUZS:     Number(o.sumUZS   || o.totalSum || o.codAmount || o.amount || 0),
+      // Coerce status to a known set so completed/in-progress counts are stable
+      status:     String(o.status || o.state || 'pending').toLowerCase(),
     };
   });
 }
@@ -6929,17 +6995,25 @@ function renderCourierPoints() {
 
   const orders = filterOrders(getAllOrders());
 
+  const uniqueClients = new Set(orders.map(o => o.client).filter(Boolean)).size;
+  const completedCount = orders.filter(o => o.status === 'completed' || o.status === 'done' || o.status === 'delivered').length;
+  const onMap = orders.filter(o => typeof o.lat === 'number' && typeof o.lng === 'number').length;
   const k = el('div', { class: 'kpi-grid' });
   [
     { l: 'Всего точек',          v: fmt(orders.length), icon: 'map',     kind: '' },
-    { l: 'Уникальных клиентов',  v: fmt(new Set(orders.map(o => o.client)).size), icon: 'customers', kind: 'kpi-purple' },
-    { l: 'Завершены',            v: fmt(orders.filter(o => o.status === 'completed').length), icon: 'star', kind: 'kpi-success' },
+    { l: 'Уникальных клиентов',  v: fmt(uniqueClients), icon: 'customers', kind: 'kpi-purple' },
+    { l: 'Завершены',            v: fmt(completedCount), icon: 'star',   kind: 'kpi-success' },
     { l: 'Средн. сумма',         v: fmt(Math.round(orders.reduce((s,o)=>s+(o.sumUZS||0),0)/Math.max(1,orders.length))), icon: 'money', kind: 'kpi-warning' },
   ].forEach(t => k.appendChild(el('div', { class: 'kpi ' + t.kind, html: `
     <div class="kpi-head"><div class="kpi-label">${t.l}</div><div class="kpi-icon">${ICONS[t.icon]}</div></div>
     <div class="kpi-value">${t.v}</div>
   `})));
   p.appendChild(k);
+
+  // Note when many orders are missing coordinates so user understands why the map looks empty
+  if (orders.length > 0 && onMap < orders.length) {
+    p.appendChild(el('div', { style: 'margin: 4px 0 14px; padding: 9px 14px; background: var(--warning-soft); color: var(--warning); border-radius: 8px; font-size: 11.5px;', html: `ℹ Геокоординаты есть у <b>${fmt(onMap)}</b> из <b>${fmt(orders.length)}</b> точек — остальные не отображаются на карте.` }));
+  }
 
   // Map of points
   const mcard = el('div', { class: 'card' });
@@ -8636,6 +8710,7 @@ function renderPage(p) {
 async function bootApp() {
   renderNav();
   updateSourceBadges();
+  setupSidebarMode();           // pin sidebar on wide screens so map/content don't go under it
   goTo('home');
 
   // Try to load live data from PVZ + Dispatch aggregator
